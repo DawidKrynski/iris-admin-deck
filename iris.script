@@ -1,0 +1,16 @@
+    // Demo instance: fixed passwords, never expire (do NOT use in production)
+    zn "%SYS"
+    set p("PasswordNeverExpires")=1,p("ChangePassword")=0
+    do ##class(Security.Users).Modify("_SYSTEM",.p)
+    do ##class(Security.Users).Modify("SuperUser",.p)
+    do ##class(Security.Users).Modify("Admin",.p)
+
+    // Demo only: keep the build-time log as a rotated file so the "older logs" view has data
+    set mgr = ##class(%File).ManagerDirectory()
+    do ##class(%File).CopyFile(mgr_"messages.log", mgr_"messages.old_"_$zdate($horolog,8)_"_1")
+
+    zn "USER"
+    // Demo only: one application error (as ^%ETN records it) so the Timeline source is not empty
+    try { set x = 1 / 0 } catch ex { do LOG^%ETN("Admin Deck demo: example application error") }
+    zpm "load /home/irisowner/dev/ -v":1:1
+    halt

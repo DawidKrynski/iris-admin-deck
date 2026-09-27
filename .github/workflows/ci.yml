@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    name: JavaScript and Python unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: node --test tests/js/*.test.mjs
+      - run: pip install pytest && cd python && python -m pytest -q tests
+
+  iris:
+    name: IRIS build, ObjectScript, API and UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build and start IRIS with the package installed
+        run: docker compose up -d --build
+      - name: Wait for the portal
+        run: |
+          for i in $(seq 1 90); do
+            curl -sf -o /dev/null http://127.0.0.1:52785/admindeck/index.html && exit 0
+            sleep 2
+          done
+          docker compose logs --tail 100; exit 1
+      - name: ObjectScript unit tests (%UnitTest)
+        run: |
+          out=$(docker compose exec -T iris iris session IRIS -U USER <<'OBJ'
+          zpm "iris-admin-deck test -only -v"
+          halt
+          OBJ
+          )
+          echo "$out" | grep -E "Methods:|Assertions:|failed"
+          echo "$out" | grep -qE "Methods: [0-9]+ total, [0-9]+ passed, 0 failed"
+      - name: API integration tests
+        run: python -m unittest discover -s tests/integration -v
+      - name: UI end-to-end tests (Playwright)
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+          python tests/e2e/test_ui.py

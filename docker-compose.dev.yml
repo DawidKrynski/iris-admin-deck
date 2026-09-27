@@ -1,0 +1,6 @@
+# Development: serve the UI straight from ./web (edit & reload, no reinstall).
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+services:
+  iris:
+    volumes:
+      - ./web:/usr/irissys/csp/admindeck

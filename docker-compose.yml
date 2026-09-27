@@ -1,0 +1,11 @@
+services:
+  iris:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: --check-caps false
+    ports:
+      - "127.0.0.1:52785:52773"
+    volumes:
+      - ./:/home/irisowner/dev

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+  <Document name="iris-admin-deck.ZPM">
+    <Module>
+      <Name>iris-admin-deck</Name>
+      <Version>1.0.0</Version>
+      <Description>Modern single-page management portal for InterSystems IRIS built on the SysAdmin REST API (/api/admin/v2): web apps, permissions, secrets, tasks, OS and logs, with Embedded Python log/OS insights and vector search over logs.</Description>
+      <Keywords>management portal sysadmin api admin gui embedded python vector search</Keywords>
+      <Author>
+        <Person>Dawid Krynski</Person>
+      </Author>
+      <License>MIT</License>
+      <Packaging>module</Packaging>
+      <SourcesRoot>src</SourcesRoot>
+      <Resource Name="AdminDeck.PKG"/>
+      <UnitTest Name="/tests" Package="AdminDeck.Tests" Phase="test"/>
+      <!-- Embedded Python helpers, importable as "admindeck" -->
+      <FileCopy Name="python/admindeck/" Target="${mgrdir}python/admindeck/"/>
+      <SystemRequirements Version=">=2026.2"/>
+
+      <!-- Static single-page UI; must be same-origin with /api/admin (CORS is rejected there) -->
+      <FileCopy Name="web/" Target="${cspdir}admindeck/"/>
+      <WebApplication
+        Url="/admindeck"
+        Path="${cspdir}admindeck/"
+        ServeFiles="1"
+        Recurse="1"
+        CookiePath="/admindeck/"
+        UseCookies="0"
+        AutheEnabled="64"
+        MatchRoles=":{$globalsDbRole}"/>
+
+      <!-- Extension REST API (logs, OS metrics, vector search); JWT enabled in AdminDeck.Installer -->
+      <WebApplication
+        Url="/admindeck/api"
+        DispatchClass="AdminDeck.REST.Dispatch"
+        CookiePath="/admindeck/api/"
+        UseCookies="0"
+        AutheEnabled="32"
+        MatchRoles=":{$globalsDbRole}"
+        Recurse="1"/>
+
+      <Invoke Class="AdminDeck.Installer" Method="Configure" Phase="Activate" When="After"/>
+    </Module>
+  </Document>
+</Export>
