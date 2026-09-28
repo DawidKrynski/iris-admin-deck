@@ -10,27 +10,42 @@ const MAX_WHAT = 200;
 // Query-string values that must not end up in the log (e.g. ?token=..., ?ClientSecret=...).
 const SECRET_PARAM = /password|secret|token/i;
 // POSTs that only read are not changes: exactly these endpoints; anything else posted may write.
-const READ_ONLY_POST = new Set(['/api/admin/v2/security/audit/records', '/api/admin/v2/journal/file/records', '/api/admin/v2/database-dir/info']);
+const READ_ONLY_POST = new Set([
+  '/api/admin/v2/security/audit/records',
+  '/api/admin/v2/journal/file/records',
+  '/api/admin/v2/database-dir/info',
+]);
 const LOG_PATH = /\/admindeck\/api\/changes$/;
 
 /** Path with the values of password/secret/token query parameters replaced by ***. */
 export function redactPath(path) {
   const [base, query] = String(path).split(/\?(.*)/s);
   if (query === undefined) return base;
-  return `${base}?${query.split('&').map((pair) => {
-    const eq = pair.indexOf('=');
-    const name = eq < 0 ? pair : pair.slice(0, eq);
-    let decoded = name;
-    try { decoded = decodeURIComponent(name.replace(/\+/g, ' ')); } catch { /* keep as sent */ }
-    return eq >= 0 && SECRET_PARAM.test(decoded) ? `${name}=***` : pair;
-  }).join('&')}`;
+  return `${base}?${query
+    .split('&')
+    .map((pair) => {
+      const eq = pair.indexOf('=');
+      const name = eq < 0 ? pair : pair.slice(0, eq);
+      let decoded = name;
+      try {
+        decoded = decodeURIComponent(name.replace(/\+/g, ' '));
+      } catch {
+        /* keep as sent */
+      }
+      return eq >= 0 && SECRET_PARAM.test(decoded) ? `${name}=***` : pair;
+    })
+    .join('&')}`;
 }
 
 /** Free text (a title, an error message) with the values of password/secret/token name=value pairs replaced by ***. */
 export function redactText(text) {
   return String(text ?? '').replace(/([^\s?&=;,"']+)=([^&\s#"',;]*)/g, (pair, name) => {
     let decoded = name;
-    try { decoded = decodeURIComponent(name.replace(/\+/g, ' ')); } catch { /* keep as sent */ }
+    try {
+      decoded = decodeURIComponent(name.replace(/\+/g, ' '));
+    } catch {
+      /* keep as sent */
+    }
     return SECRET_PARAM.test(decoded) ? `${name}=***` : pair;
   });
 }
@@ -43,10 +58,16 @@ export function changeCall({ method, url }, prefix = '') {
   const m = String(method || '').toUpperCase();
   if (!m || m === 'GET' || m === 'HEAD') return null;
   let path = String(url || '');
-  try { const u = new URL(path, 'http://x'); path = u.pathname + u.search; } catch { return null; }
+  try {
+    const u = new URL(path, 'http://x');
+    path = u.pathname + u.search;
+  } catch {
+    return null;
+  }
   if (prefix && path.startsWith(`${prefix}/`)) path = path.slice(prefix.length);
   const bare = path.split('?')[0];
-  if ((m === 'POST' && READ_ONLY_POST.has(bare)) || LOG_PATH.test(bare) || /\/(login|logout|refresh)$/.test(bare)) return null;
+  if ((m === 'POST' && READ_ONLY_POST.has(bare)) || LOG_PATH.test(bare) || /\/(login|logout|refresh)$/.test(bare))
+    return null;
   return { method: m, path: redactPath(path) };
 }
 
@@ -57,9 +78,14 @@ export function outcomeOf(result, error) {
     return { outcome: error instanceof StaleError ? 'refused' : 'failed', details: message };
   }
   const { status = 'unverified', mismatched = [], unchecked = [], error: readError } = result || {};
-  const details = status === 'not-reflected' ? mismatched.join(', ')
-    : status === 'partly-verified' ? `not returned by the API: ${unchecked.join(', ')}`
-      : status === 'read-failed' ? String((readError && readError.message) || '') : '';
+  const details =
+    status === 'not-reflected'
+      ? mismatched.join(', ')
+      : status === 'partly-verified'
+        ? `not returned by the API: ${unchecked.join(', ')}`
+        : status === 'read-failed'
+          ? String((readError && readError.message) || '')
+          : '';
   return { outcome: status, details };
 }
 

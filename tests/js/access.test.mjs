@@ -1,23 +1,50 @@
 // Unit tests for who loses what and the last-administrator check (web/js/access.js). Run with: node --test tests/js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { snapshot, heldRoles, withChange, lostAccess, administrators, adminRefusal, reducesRole, capList, loadAccess, changeRoles } from '../../web/js/access.js';
+import {
+  snapshot,
+  heldRoles,
+  withChange,
+  lostAccess,
+  administrators,
+  adminRefusal,
+  reducesRole,
+  capList,
+  loadAccess,
+  changeRoles,
+} from '../../web/js/access.js';
 
-const model = () => snapshot({
-  users: [
-    { Name: 'SuperUser', Enabled: true, Roles: ['%All'] },
-    { Name: 'ops', Enabled: true, Roles: ['Operators'] },
-    { Name: 'dev', Enabled: true, Roles: ['Developers'] },
-    { Name: 'old', Enabled: false, Roles: ['Operators'] },
-  ],
-  roles: {
-    '%All': { GrantedRoles: [], Resources: [] },
-    Operators: { GrantedRoles: ['Readers'], Resources: [{ Name: '%Admin_Operate', Permissions: 'U' }, { Name: '%DB_USER', Permissions: 'RW' }] },
-    Readers: { GrantedRoles: [], Resources: [{ Name: '%DB_USER', Permissions: 'R' }, { Name: '%DB_IRISAUDIT', Permissions: 'R' }] },
-    Developers: { GrantedRoles: [], Resources: [{ Name: '%Development', Permissions: 'U' }] },
-  },
-  resources: [{ Name: '%Development', PublicPermission: '' }, { Name: '%Service_Console', PublicPermission: 'U' }],
-});
+const model = () =>
+  snapshot({
+    users: [
+      { Name: 'SuperUser', Enabled: true, Roles: ['%All'] },
+      { Name: 'ops', Enabled: true, Roles: ['Operators'] },
+      { Name: 'dev', Enabled: true, Roles: ['Developers'] },
+      { Name: 'old', Enabled: false, Roles: ['Operators'] },
+    ],
+    roles: {
+      '%All': { GrantedRoles: [], Resources: [] },
+      Operators: {
+        GrantedRoles: ['Readers'],
+        Resources: [
+          { Name: '%Admin_Operate', Permissions: 'U' },
+          { Name: '%DB_USER', Permissions: 'RW' },
+        ],
+      },
+      Readers: {
+        GrantedRoles: [],
+        Resources: [
+          { Name: '%DB_USER', Permissions: 'R' },
+          { Name: '%DB_IRISAUDIT', Permissions: 'R' },
+        ],
+      },
+      Developers: { GrantedRoles: [], Resources: [{ Name: '%Development', Permissions: 'U' }] },
+    },
+    resources: [
+      { Name: '%Development', PublicPermission: '' },
+      { Name: '%Service_Console', PublicPermission: 'U' },
+    ],
+  });
 
 test('heldRoles follows roles granted through other roles, case-insensitively', () => {
   assert.deepEqual([...heldRoles(['operators'], model())].sort(), ['operators', 'readers']);
@@ -32,23 +59,41 @@ test('deleting a role lists the enabled holders and what they lose, not what ano
 
 test('a letter still granted by another held role is not lost; disabled users are not listed', () => {
   const before = snapshot({
-    users: [{ Name: 'a', Enabled: true, Roles: ['X', 'Y'] }, { Name: 'b', Enabled: false, Roles: ['X'] }],
-    roles: { X: { Resources: [{ Name: 'R1', Permissions: 'RW' }] }, Y: { Resources: [{ Name: 'r1', Permissions: 'R' }] } },
+    users: [
+      { Name: 'a', Enabled: true, Roles: ['X', 'Y'] },
+      { Name: 'b', Enabled: false, Roles: ['X'] },
+    ],
+    roles: {
+      X: { Resources: [{ Name: 'R1', Permissions: 'RW' }] },
+      Y: { Resources: [{ Name: 'r1', Permissions: 'R' }] },
+    },
   });
   const after = withChange(before, { kind: 'deleteRole', role: 'x' });
   assert.deepEqual(lostAccess(before, after), [{ Name: 'a', lost: ['R1:W'] }]);
 });
 
 test('public permissions are never lost', () => {
-  const before = snapshot({ users: [{ Name: 'a', Enabled: true, Roles: ['X'] }], roles: { X: { Resources: [{ Name: '%Service_Console', Permissions: 'U' }] } },
-    resources: [{ Name: '%Service_Console', PublicPermission: 'U' }] });
+  const before = snapshot({
+    users: [{ Name: 'a', Enabled: true, Roles: ['X'] }],
+    roles: { X: { Resources: [{ Name: '%Service_Console', Permissions: 'U' }] } },
+    resources: [{ Name: '%Service_Console', PublicPermission: 'U' }],
+  });
   assert.deepEqual(lostAccess(before, withChange(before, { kind: 'deleteRole', role: 'X' })), []);
 });
 
 test('removing a role from a user, and lowering a permission in a role', () => {
   const before = model();
-  assert.deepEqual(lostAccess(before, withChange(before, { kind: 'updateUser', user: 'dev', Roles: [] })), [{ Name: 'dev', lost: ['%Development:U'] }]);
-  const lowered = withChange(before, { kind: 'updateRole', role: 'Operators', Resources: [{ Name: '%Admin_Operate', Permissions: 'U' }, { Name: '%DB_USER', Permissions: 'R' }] });
+  assert.deepEqual(lostAccess(before, withChange(before, { kind: 'updateUser', user: 'dev', Roles: [] })), [
+    { Name: 'dev', lost: ['%Development:U'] },
+  ]);
+  const lowered = withChange(before, {
+    kind: 'updateRole',
+    role: 'Operators',
+    Resources: [
+      { Name: '%Admin_Operate', Permissions: 'U' },
+      { Name: '%DB_USER', Permissions: 'R' },
+    ],
+  });
   assert.deepEqual(lostAccess(before, lowered), [{ Name: 'ops', lost: ['%DB_USER:W'] }]);
   const ungranted = withChange(before, { kind: 'updateRole', role: 'Operators', GrantedRoles: [] });
   assert.deepEqual(lostAccess(before, ungranted), [{ Name: 'ops', lost: ['%DB_IRISAUDIT:R'] }]);
@@ -56,7 +101,10 @@ test('removing a role from a user, and lowering a permission in a role', () => {
 
 test('losing %All is reported as %All, and a user who keeps %All another way loses nothing', () => {
   const before = snapshot({
-    users: [{ Name: 'a', Enabled: true, Roles: ['%All'] }, { Name: 'b', Enabled: true, Roles: ['%All', 'Admins'] }],
+    users: [
+      { Name: 'a', Enabled: true, Roles: ['%All'] },
+      { Name: 'b', Enabled: true, Roles: ['%All', 'Admins'] },
+    ],
     roles: { '%All': {}, Admins: { GrantedRoles: ['%All'] } },
   });
   const after = withChange(before, { kind: 'updateUser', user: 'a', Roles: [] });
@@ -72,7 +120,11 @@ test('the user being disabled or deleted is the subject, not listed as losing ac
 
 test('administrators counts enabled %All holders, also through a granting role', () => {
   const m = snapshot({
-    users: [{ Name: 'a', Enabled: true, Roles: ['Admins'] }, { Name: 'b', Enabled: false, Roles: ['%All'] }, { Name: 'c', Enabled: true, Roles: [] }],
+    users: [
+      { Name: 'a', Enabled: true, Roles: ['Admins'] },
+      { Name: 'b', Enabled: false, Roles: ['%All'] },
+      { Name: 'c', Enabled: true, Roles: [] },
+    ],
     roles: { '%All': {}, Admins: { GrantedRoles: ['%ALL'] } },
   });
   assert.deepEqual(administrators(m), ['a']);
@@ -80,7 +132,10 @@ test('administrators counts enabled %All holders, also through a granting role',
 
 test('adminRefusal refuses every change that leaves no enabled %All holder', () => {
   const before = snapshot({
-    users: [{ Name: 'boss', Enabled: true, Roles: ['Admins'] }, { Name: 'x', Enabled: true, Roles: [] }],
+    users: [
+      { Name: 'boss', Enabled: true, Roles: ['Admins'] },
+      { Name: 'x', Enabled: true, Roles: [] },
+    ],
     roles: { '%All': {}, Admins: { GrantedRoles: ['%All'] } },
   });
   for (const change of [
@@ -114,7 +169,10 @@ test('reducesRole: a removed letter, resource or granted role reduces; additions
   assert.equal(reducesRole(role, { Resources: [{ Name: '%DB_USER', Permissions: 'R' }] }), true);
   assert.equal(reducesRole(role, { Resources: [] }), true);
   assert.equal(reducesRole(role, { GrantedRoles: [] }), true);
-  assert.equal(reducesRole(role, { Resources: [{ Name: '%db_user', Permissions: 'WRU' }], GrantedRoles: ['readers', 'X'] }), false);
+  assert.equal(
+    reducesRole(role, { Resources: [{ Name: '%db_user', Permissions: 'WRU' }], GrantedRoles: ['readers', 'X'] }),
+    false,
+  );
   assert.equal(reducesRole(role, { Description: 'x' }), false);
 });
 
@@ -128,7 +186,10 @@ test('capList shows at most max items and counts the rest', () => {
 test('loadAccess reads enabled users, then every role they reach (and the extra role), once each', async () => {
   const calls = [];
   const data = {
-    '/v2/security/users': [{ Name: 'a', Enabled: true }, { Name: 'off', Enabled: false }],
+    '/v2/security/users': [
+      { Name: 'a', Enabled: true },
+      { Name: 'off', Enabled: false },
+    ],
     '/v2/security/resources': [{ Name: 'P', PublicPermission: 'R' }],
     'user:a': { Roles: ['Outer', 'outer'] },
     'role:Outer': { GrantedRoles: ['Inner'], Resources: [] },
@@ -145,7 +206,10 @@ test('loadAccess reads enabled users, then every role they reach (and the extra 
   assert.deepEqual([...m.roles.keys()].sort(), ['inner', 'lonely', 'outer']);
   assert.equal(calls.filter((c) => c.startsWith('/v2/security/role?')).length, 3, 'each role read once');
   assert.ok(!calls.includes('/v2/security/user?off'), 'disabled users are not read');
-  assert.deepEqual(m.users.find((u) => u.Name === 'off'), { Name: 'off', Enabled: false, Roles: [] });
+  assert.deepEqual(
+    m.users.find((u) => u.Name === 'off'),
+    { Name: 'off', Enabled: false, Roles: [] },
+  );
 });
 
 test('replacing the only %All with another role that grants %All is allowed: proposed roles are read too', async () => {
@@ -158,7 +222,12 @@ test('replacing the only %All with another role that grants %All is allowed: pro
     'role:Wrapper': { GrantedRoles: ['%All'], Resources: [] },
     'role:Plain': { GrantedRoles: [], Resources: [] },
   };
-  const get = async (path, q) => (path === '/v2/security/user' ? data[`user:${q.name}`] : path === '/v2/security/role' ? data[`role:${q.name}`] : data[path]);
+  const get = async (path, q) =>
+    path === '/v2/security/user'
+      ? data[`user:${q.name}`]
+      : path === '/v2/security/role'
+        ? data[`role:${q.name}`]
+        : data[path];
   const check = async (change) => {
     const before = await loadAccess(get, changeRoles(change));
     return adminRefusal(before, withChange(before, change));

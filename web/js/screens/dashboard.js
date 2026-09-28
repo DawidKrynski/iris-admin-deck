@@ -2,7 +2,19 @@
 import { admin, ext, monitorMetrics } from '../api.js';
 import { navigate, can, session } from '../app.js';
 import { versionLabel, platformLabel, mirrorLabel, licenseUnits, parseMetrics } from '../iris.js';
-import { h, clear, page, meter, badge, fmtBytes, fmtDuration, severityBadge, errorBox, loading, sparkline } from '../ui.js';
+import {
+  h,
+  clear,
+  page,
+  meter,
+  badge,
+  fmtBytes,
+  fmtDuration,
+  severityBadge,
+  errorBox,
+  loading,
+  sparkline,
+} from '../ui.js';
 import { dismountedDirs, nextSteps, openLink, mountStep, backupFinding, BACKUP_MAX_AGE_DAYS } from '../actions.js';
 
 const REFRESH_MS = 5000;
@@ -14,25 +26,34 @@ export default async function render(el) {
   // Instance strip in the subtitle slot: version, platform, system mode, mirror, namespaces, IRIS uptime.
   const strip = h('span.instance-strip');
   let mirror = null;
-  monitorMetrics().then((t) => { mirror = mirrorLabel((parseMetrics(t).iris_mirror_member_type || [])[0]?.value); }, () => {});
+  monitorMetrics().then(
+    (t) => {
+      mirror = mirrorLabel((parseMetrics(t).iris_mirror_member_type || [])[0]?.value);
+    },
+    () => {},
+  );
   const healthCard = h('div.card');
   const resCard = h('div.card');
   const liveCard = h('div.card');
   const attnCard = h('div.card');
   const tasksCard = h('div.card');
-  el.append(page('Dashboard', strip,
-    h('div.grid.wide', liveCard, resCard, healthCard, attnCard, tasksCard),
-    summary));
+  el.append(page('Dashboard', strip, h('div.grid.wide', liveCard, resCard, healthCard, attnCard, tasksCard), summary));
   clear(liveCard, loading());
 
   let first = true;
   const tick = async () => {
     if (!el.isConnected) return;
     {
-      const [main, os, hist] = await Promise.allSettled([admin.get('/v2/monitor/dashboard/main'), ext.get('/os'), ext.get('/metrics')]);
+      const [main, os, hist] = await Promise.allSettled([
+        admin.get('/v2/monitor/dashboard/main'),
+        ext.get('/os'),
+        ext.get('/metrics'),
+      ]);
       // History comes from the server, so the charts are full on arrival; without it they fill while the page is open.
-      const recent = hist.status === 'fulfilled' && hist.value.points.length
-        && Date.now() / 1000 - hist.value.points[hist.value.points.length - 1][0] < 3 * hist.value.interval;
+      const recent =
+        hist.status === 'fulfilled' &&
+        hist.value.points.length &&
+        Date.now() / 1000 - hist.value.points[hist.value.points.length - 1][0] < 3 * hist.value.interval;
       if (recent) {
         const points = hist.value.points.slice(-HISTORY);
         series = { grefs: points.map((p) => p[1]), cpu: points.map((p) => p[2]), times: points.map((p) => p[0]) };
@@ -70,38 +91,68 @@ function push(arr, v) {
 
 function renderSummary(box, m) {
   const su = m.SystemUsage || {};
-  clear(box, `Last backup: ${(m.Status && m.Status.LastBackup) || 'never'} · `,
-    h('a', { href: '#/processes' }, `${num(su.Processes)} processes`), ` · ${num(su.CSPSessions)} web sessions`);
+  clear(
+    box,
+    `Last backup: ${(m.Status && m.Status.LastBackup) || 'never'} · `,
+    h('a', { href: '#/processes' }, `${num(su.Processes)} processes`),
+    ` · ${num(su.CSPSessions)} web sessions`,
+  );
 }
 
 // The SysAdmin API has no instance name; /api/admin/info gives the version, system mode and namespaces.
 function renderStrip(box, m, mirror) {
   const info = session.info || {};
   const ns = (info.namespaces || []).length;
-  clear(box, [versionLabel(info.serverVersion), platformLabel(info.serverVersion),
-    `system mode: ${info.systemMode || 'not set'}`, mirror ? `mirror: ${mirror}` : null,
-    ns ? `${ns} namespaces` : null, `IRIS up ${shortUptime(m.Status && m.Status.UpTime)}`].filter(Boolean).join(' · '));
+  clear(
+    box,
+    [
+      versionLabel(info.serverVersion),
+      platformLabel(info.serverVersion),
+      `system mode: ${info.systemMode || 'not set'}`,
+      mirror ? `mirror: ${mirror}` : null,
+      ns ? `${ns} namespaces` : null,
+      `IRIS up ${shortUptime(m.Status && m.Status.UpTime)}`,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  );
 }
 
 // "0d 0h 31m" -> "31m", "2d 4h 5m" -> "2d 4h 5m"
 const shortUptime = (s) => (s || '—').replace(/\s+/g, ' ').replace(/^(0[dh] )+/, '');
 
-function num(v) { return typeof v === 'number' ? v.toLocaleString('en-US') : (v ?? '—'); }
+function num(v) {
+  return typeof v === 'number' ? v.toLocaleString('en-US') : (v ?? '—');
+}
 
 const OK_WORDS = new Set(['Normal', 'OK', 'Ok', 'Running']);
 function renderHealth(box, m) {
   const su = m.SystemUsage || {};
   const ecp = m.ECP || {};
   const checks = [
-    ['Database space', su.DatabaseSpace], ['Database journal', su.DatabaseJournal], ['Journal space', su.JournalSpace],
-    ['Lock table', su.LockTable], ['Write daemon', su.WriteDaemon], ['ECP clients', ecp.ECPClients], ['ECP servers', ecp.ECPServers],
-    ['Mirroring / shadows', ecp.Shadows], ['System Monitor', m.Status && (m.Status.SystemMonitor ? 'Running' : 'Stopped')],
+    ['Database space', su.DatabaseSpace],
+    ['Database journal', su.DatabaseJournal],
+    ['Journal space', su.JournalSpace],
+    ['Lock table', su.LockTable],
+    ['Write daemon', su.WriteDaemon],
+    ['ECP clients', ecp.ECPClients],
+    ['ECP servers', ecp.ECPServers],
+    ['Mirroring / shadows', ecp.Shadows],
+    ['System Monitor', m.Status && (m.Status.SystemMonitor ? 'Running' : 'Stopped')],
   ].filter(([, v]) => v !== undefined && v !== ''); // right after startup IRIS reports some checks as empty
   const bad = checks.filter(([, v]) => !OK_WORDS.has(v) && v !== 'Stopped');
-  clear(box,
+  clear(
+    box,
     h('h2', 'Health checks', bad.length ? badge(`${bad.length} to review`, 'warn') : badge('All normal', 'ok')),
-    h('dl.kv', checks.map(([k, v]) => [h('dt', k), h('dd', badge(v, OK_WORDS.has(v) ? 'ok' : v === 'Stopped' ? 'muted' : 'warn'))])),
-    h('p.muted.small', h('a', { href: '#/status' }, 'All checks, with evidence and fixes →')));
+    h(
+      'dl.kv',
+      checks.map(([k, v]) => [
+        h('dt', k),
+        h('dd', badge(v, OK_WORDS.has(v) ? 'ok' : v === 'Stopped' ? 'muted' : 'warn')),
+      ]),
+    ),
+    h('p.muted.small', h('a', { href: '#/status' }, 'All checks, with evidence and fixes →')),
+  );
 }
 
 function renderResources(box, os, lic) {
@@ -112,30 +163,70 @@ function renderResources(box, os, lic) {
   const licPct = Number(lic.LicenseUse) || 0;
   // In Docker the host name is the container ID: say "container" instead of showing the hash.
   const host = /^[0-9a-f]{12}$/.test(os.hostname || '') ? 'container' : os.hostname;
-  clear(box,
-    h('h2', 'Resources', os.hostname ? h('span.muted.small', { title: os.hostname }, `${host} up ${fmtDuration(os.uptimeSec)}`) : null),
+  clear(
+    box,
+    h(
+      'h2',
+      'Resources',
+      os.hostname ? h('span.muted.small', { title: os.hostname }, `${host} up ${fmtDuration(os.uptimeSec)}`) : null,
+    ),
     row('CPU', `${os.cpu.usagePct}% · ${os.cpu.cores} cores`, os.cpu.usagePct),
-    row('Memory', `${fmtBytes(mem.used)} of ${fmtBytes(mem.total)}${mem.containerLimit ? ` (limit ${fmtBytes(mem.containerLimit)})` : ''}`, mem.usedPct),
-    disks.map((d) => row(disks.length > 1 ? `Disk · ${d.label}` : 'Disk', `${fmtBytes(d.free)} free of ${fmtBytes(d.total)}`, d.usedPct, d.path)),
-    lic.LicenseLimit && lic.LicenseUse !== '' ? row('License units', `${licenseUnits(licPct, lic.LicenseLimit)} of ${lic.LicenseLimit} in use`
-      + (lic.LicenseUseHigh ? ` · peak ${licenseUnits(lic.LicenseUseHigh, lic.LicenseLimit)}` : ''), licPct,
-      'License units in use; new connections are refused when all are taken') : null);
+    row(
+      'Memory',
+      `${fmtBytes(mem.used)} of ${fmtBytes(mem.total)}${mem.containerLimit ? ` (limit ${fmtBytes(mem.containerLimit)})` : ''}`,
+      mem.usedPct,
+    ),
+    disks.map((d) =>
+      row(
+        disks.length > 1 ? `Disk · ${d.label}` : 'Disk',
+        `${fmtBytes(d.free)} free of ${fmtBytes(d.total)}`,
+        d.usedPct,
+        d.path,
+      ),
+    ),
+    lic.LicenseLimit && lic.LicenseUse !== ''
+      ? row(
+          'License units',
+          `${licenseUnits(licPct, lic.LicenseLimit)} of ${lic.LicenseLimit} in use` +
+            (lic.LicenseUseHigh ? ` · peak ${licenseUnits(lic.LicenseUseHigh, lic.LicenseLimit)}` : ''),
+          licPct,
+          'License units in use; new connections are refused when all are taken',
+        )
+      : null,
+  );
 }
 
 function row(label, text, pct, title) {
-  return h('div', { style: { margin: '10px 0' }, title },
-    h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } }, h('strong', label), h('span.muted.small', text)),
-    meter(pct, label));
+  return h(
+    'div',
+    { style: { margin: '10px 0' }, title },
+    h(
+      'div',
+      { style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } },
+      h('strong', label),
+      h('span.muted.small', text),
+    ),
+    meter(pct, label),
+  );
 }
 
 function renderLive(box, series) {
-  clear(box,
-    h('h2', 'Live throughput', h('span.muted.small', `last ${HISTORY * REFRESH_MS / 60000} min · `,
-      h('a', { href: '#/status' }, 'Last hour →'))),
+  clear(
+    box,
+    h(
+      'h2',
+      'Live throughput',
+      h(
+        'span.muted.small',
+        `last ${(HISTORY * REFRESH_MS) / 60000} min · `,
+        h('a', { href: '#/status' }, 'Last hour →'),
+      ),
+    ),
     h('div.small.muted', 'Global references per second'),
     sparkline(series.grefs, 'var(--accent)', { slots: HISTORY, times: series.times, label: 'references / s' }),
     h('div.small.muted', { style: { marginTop: '10px' } }, 'CPU %'),
-    sparkline(series.cpu, 'var(--muted)', { max: 100, slots: HISTORY, times: series.times, label: '% CPU' }));
+    sparkline(series.cpu, 'var(--muted)', { max: 100, slots: HISTORY, times: series.times, label: '% CPU' }),
+  );
 }
 
 // What an administrator should look at: dismounted databases, certificates about to expire, then
@@ -153,52 +244,121 @@ async function renderAttention(box, alerts) {
   const pats = insights instanceof Error ? [] : insights.patterns || [];
   // One list, most severe first: errors, then an expired or expiring certificate, then warnings.
   const items = [
-    ...dirs.map((dir) => ({ level: 2, el: h('li.attention-item',
-      badge('dismounted', 'err'), ' ', `Database ${dir} is dismounted`,
-      nextSteps(can('Operate') && mountStep(dir, () => renderAttention(box, alerts)))) })),
-    ...certificates.map((c) => ({ level: c.days < 0 ? 2 : 1, el: h('li.attention-item',
-      badge(c.days < 0 ? 'expired' : `${c.days} d`, c.days < 0 ? 'err' : 'warn'), ' ',
-      `X.509 credential ${c.alias}`, c.days < 0 ? ' has expired' : ` expires ${c.date}`,
-      nextSteps(openLink('Open credential', `secrets/x509/${encodeURIComponent(c.alias)}`))) })),
+    ...dirs.map((dir) => ({
+      level: 2,
+      el: h(
+        'li.attention-item',
+        badge('dismounted', 'err'),
+        ' ',
+        `Database ${dir} is dismounted`,
+        nextSteps(can('Operate') && mountStep(dir, () => renderAttention(box, alerts))),
+      ),
+    })),
+    ...certificates.map((c) => ({
+      level: c.days < 0 ? 2 : 1,
+      el: h(
+        'li.attention-item',
+        badge(c.days < 0 ? 'expired' : `${c.days} d`, c.days < 0 ? 'err' : 'warn'),
+        ' ',
+        `X.509 credential ${c.alias}`,
+        c.days < 0 ? ' has expired' : ` expires ${c.date}`,
+        nextSteps(openLink('Open credential', `secrets/x509/${encodeURIComponent(c.alias)}`)),
+      ),
+    })),
     ...(backups ? [{ level: backups.lastFailed ? 2 : 1, el: backupItem(backups) }] : []),
-    ...pats.map((p) => ({ level: Math.min(p.maxSeverity, 2), el: h('li.attention-item',
-      severityBadge(p.maxSeverity), ' ', h('strong', `${p.count}×`), ' ', h('span', p.example),
-      h('div.muted.small', `${p.source} · last ${p.last}`)) })),
+    ...pats.map((p) => ({
+      level: Math.min(p.maxSeverity, 2),
+      el: h(
+        'li.attention-item',
+        severityBadge(p.maxSeverity),
+        ' ',
+        h('strong', `${p.count}×`),
+        ' ',
+        h('span', p.example),
+        h('div.muted.small', `${p.source} · last ${p.last}`),
+      ),
+    })),
   ].sort((a, b) => b.level - a.level);
-  clear(box,
+  clear(
+    box,
     h('h2', 'Needs attention', h('button.small', { onclick: () => navigate('logs') }, 'Open logs')),
-    serious ? h('p.muted.small', `${alerts.SeriousAlerts || 0} serious alerts and ${alerts.ApplicationErrors || 0} application errors since startup.`) : null,
+    serious
+      ? h(
+          'p.muted.small',
+          `${alerts.SeriousAlerts || 0} serious alerts and ${alerts.ApplicationErrors || 0} application errors since startup.`,
+        )
+      : null,
     insights instanceof Error ? h('p.muted', `Log insights unavailable: ${insights.message}`) : null,
-    items.length ? h('ul.plain', items.map((i) => i.el)) : insights instanceof Error ? null : h('div.empty-state', 'No dismounted databases, no certificates expiring within 30 days, no errors or warnings in messages.log.'));
+    items.length
+      ? h(
+          'ul.plain',
+          items.map((i) => i.el),
+        )
+      : insights instanceof Error
+        ? null
+        : h(
+            'div.empty-state',
+            'No dismounted databases, no certificates expiring within 30 days, no errors or warnings in messages.log.',
+          ),
+  );
 }
 
 // Backups: none recorded, the newest successful one older than BACKUP_MAX_AGE_DAYS, or the newest run failed.
 function backupItem(f) {
-  const text = f.never ? 'No backup has run on this instance'
-    : f.days === null ? 'The age of the last successful backup is unknown'
-    : f.days > BACKUP_MAX_AGE_DAYS ? `Last successful backup ${f.days} days ago (${f.type}, ${f.time})`
-    : `Last successful backup ${f.days === 0 ? 'today' : `${f.days} d ago`} (${f.type})`;
-  return h('li.attention-item',
-    badge(f.lastFailed ? 'backup failed' : f.never ? 'no backup' : `${f.days} d`, f.lastFailed ? 'err' : 'warn'), ' ', text,
-    f.lastFailed ? h('div.muted.small', `Newest run: ${f.lastFailed.type} at ${f.lastFailed.time}: ${f.lastFailed.status || 'no status'}`) : null,
-    nextSteps(openLink('Backups', 'system/backups', 'Backup history and how to schedule a backup')));
+  const text = f.never
+    ? 'No backup has run on this instance'
+    : f.days === null
+      ? 'The age of the last successful backup is unknown'
+      : f.days > BACKUP_MAX_AGE_DAYS
+        ? `Last successful backup ${f.days} days ago (${f.type}, ${f.time})`
+        : `Last successful backup ${f.days === 0 ? 'today' : `${f.days} d ago`} (${f.type})`;
+  return h(
+    'li.attention-item',
+    badge(f.lastFailed ? 'backup failed' : f.never ? 'no backup' : `${f.days} d`, f.lastFailed ? 'err' : 'warn'),
+    ' ',
+    text,
+    f.lastFailed
+      ? h(
+          'div.muted.small',
+          `Newest run: ${f.lastFailed.type} at ${f.lastFailed.time}: ${f.lastFailed.status || 'no status'}`,
+        )
+      : null,
+    nextSteps(openLink('Backups', 'system/backups', 'Backup history and how to schedule a backup')),
+  );
 }
 
 // X.509 credentials whose certificate expires within 30 days (or has expired), soonest first.
 async function expiringCertificates() {
   const creds = await admin.get('/v2/security/x509-credentials');
-  const certs = await Promise.all(creds.map((c) => admin.get('/v2/security/x509-credential/certificate', { alias: c.Alias })
-    .then((cert) => ({ alias: c.Alias, date: cert.ValidityNotAfter }), () => null)));
-  return certs.filter((c) => c && Number.isFinite(Date.parse(c.date)))
+  const certs = await Promise.all(
+    creds.map((c) =>
+      admin.get('/v2/security/x509-credential/certificate', { alias: c.Alias }).then(
+        (cert) => ({ alias: c.Alias, date: cert.ValidityNotAfter }),
+        () => null,
+      ),
+    ),
+  );
+  return certs
+    .filter((c) => c && Number.isFinite(Date.parse(c.date)))
     .map((c) => ({ ...c, days: Math.floor((Date.parse(c.date) - Date.now()) / 86400000) }))
-    .filter((c) => c.days < 30).sort((a, b) => a.days - b.days);
+    .filter((c) => c.days < 30)
+    .sort((a, b) => a.days - b.days);
 }
 
 function renderTasks(box, all) {
   // A task that runs every few minutes would fill the list: show each task once, at its next run.
   const rows = all.filter((t, i) => all.findIndex((o) => o.Task === t.Task) === i);
-  clear(box,
+  clear(
+    box,
     h('h2', 'Upcoming tasks', h('button.small', { onclick: () => navigate('tasks') }, 'All tasks')),
-    rows.length ? h('dl.kv', rows.map((t) => [h('dt', t.Time), h('dd', t.Task, ' ', badge(t.Status, t.Status === 'Scheduled' ? 'ok' : 'warn'))]))
-      : h('div.empty-state', 'Nothing scheduled.'));
+    rows.length
+      ? h(
+          'dl.kv',
+          rows.map((t) => [
+            h('dt', t.Time),
+            h('dd', t.Task, ' ', badge(t.Status, t.Status === 'Scheduled' ? 'ok' : 'warn')),
+          ]),
+        )
+      : h('div.empty-state', 'Nothing scheduled.'),
+  );
 }

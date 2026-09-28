@@ -9,8 +9,19 @@ globalThis.sessionStorage = { getItem: () => null, setItem() {}, removeItem() {}
 const c = await import('../../web/js/checks.js');
 
 const NA = { unavailable: 'Needs the Secure privilege.' };
-const db = (Name, extra = {}) => ({ Name, Directory: `/mgr/${Name.toLowerCase()}/`, Status: 'Mounted/RW', Size: 10, MaxSize: 'Unlimited', GlobalJournalState: true, ...extra });
-const assertUnknown = (r, reason = NA.unavailable) => { assert.equal(r.state, 'unknown'); assert.equal(r.evidence, reason); };
+const db = (Name, extra = {}) => ({
+  Name,
+  Directory: `/mgr/${Name.toLowerCase()}/`,
+  Status: 'Mounted/RW',
+  Size: 10,
+  MaxSize: 'Unlimited',
+  GlobalJournalState: true,
+  ...extra,
+});
+const assertUnknown = (r, reason = NA.unavailable) => {
+  assert.equal(r.state, 'unknown');
+  assert.equal(r.evidence, reason);
+};
 
 test('dismounted: ok, fail with a Mount step per database, not checked', () => {
   assert.equal(c.dismountedCheck([db('USER')]).state, 'ok');
@@ -23,14 +34,21 @@ test('dismounted: ok, fail with a Mount step per database, not checked', () => {
 });
 
 test('journaling: off is a warning, IRISTEMP, IRISLOCALDATA and read-only databases do not count', () => {
-  const quiet = [db('IRISTEMP', { GlobalJournalState: false }), db('IRISLOCALDATA', { GlobalJournalState: false }),
-    db('IRISLIB', { GlobalJournalState: false, Status: 'Mounted/R' }), db('ARCHIVE', { GlobalJournalState: false, ReadOnly: true })];
+  const quiet = [
+    db('IRISTEMP', { GlobalJournalState: false }),
+    db('IRISLOCALDATA', { GlobalJournalState: false }),
+    db('IRISLIB', { GlobalJournalState: false, Status: 'Mounted/R' }),
+    db('ARCHIVE', { GlobalJournalState: false, ReadOnly: true }),
+  ];
   assert.equal(c.journalingCheck([db('USER'), ...quiet]).state, 'ok');
   const r = c.journalingCheck([db('USER'), db('APP', { GlobalJournalState: false })]);
   assert.equal(r.state, 'warn');
   assert.match(r.evidence, /off for APP/);
   assert.equal(r.steps[0].hash, 'system/databases');
-  assert.match(c.journalingCheck([db('USER'), db('X', { GlobalJournalState: undefined })]).evidence, /1 could not be read/);
+  assert.match(
+    c.journalingCheck([db('USER'), db('X', { GlobalJournalState: undefined })]).evidence,
+    /1 could not be read/,
+  );
   assert.equal(c.journalingCheck([db('USER', { GlobalJournalState: undefined })]).state, 'unknown', 'nothing read');
   assertUnknown(c.journalingCheck(NA));
 });
@@ -63,7 +81,13 @@ test('certificates: expired fails, under 30 days warns with a link, later is ok'
 });
 
 test('backups: recent is ok, none or old warns, a failed newest run fails', () => {
-  const run = (ok, ageDays) => ({ ok, ageDays, type: 'Full', time: `t-${ageDays}`, status: ok ? 'Completed' : 'Failed' });
+  const run = (ok, ageDays) => ({
+    ok,
+    ageDays,
+    type: 'Full',
+    time: `t-${ageDays}`,
+    status: ok ? 'Completed' : 'Failed',
+  });
   const ok = c.backupCheck({ history: [run(true, 2)] });
   assert.equal(ok.state, 'ok');
   assert.match(ok.evidence, /2 days ago/);
@@ -78,21 +102,30 @@ test('backups: recent is ok, none or old warns, a failed newest run fails', () =
 });
 
 test('task runs: the newest run of each task decides; a failure offers Run again and the task', () => {
-  const tasks = [{ Id: 1001, Name: 'Sales export' }, { Id: 1, Name: 'Switch Journal' }];
+  const tasks = [
+    { Id: 1001, Name: 'Sales export' },
+    { Id: 1, Name: 'Switch Journal' },
+  ];
   const okRun = { TaskId: 1001, ErrNumber: 0, Result: 'Success', LogDatetime: '2026-09-28 08:10:00' };
   const badRun = { TaskId: 1001, ErrNumber: 0, Result: 'ERROR #5002: <PROTECT>', Completed: '2026-09-28 08:05:00' };
   assert.equal(c.taskRunsCheck(tasks, [okRun, badRun]).state, 'ok', 'passed after the failure');
   const r = c.taskRunsCheck(tasks, [badRun, okRun, { TaskId: 99, ErrNumber: 5 }]);
   assert.equal(r.state, 'fail');
   assert.match(r.evidence, /Sales export \(#1001\) at 2026-09-28 08:05:00: ERROR #5002/);
-  assert.deepEqual(r.steps, [{ kind: 'run', id: 1001, name: 'Sales export' }, { kind: 'link', label: 'Open Sales export', hash: 'tasks/1001' }]);
+  assert.deepEqual(r.steps, [
+    { kind: 'run', id: 1001, name: 'Sales export' },
+    { kind: 'link', label: 'Open Sales export', hash: 'tasks/1001' },
+  ]);
   assert.equal(c.taskRunsCheck(tasks, [{ TaskId: 1, ErrNumber: 3 }]).state, 'fail', 'ErrNumber alone');
   assertUnknown(c.taskRunsCheck(NA, []));
   assertUnknown(c.taskRunsCheck(tasks, NA));
 });
 
 test('Task Manager: suspended manager fails, suspended tasks warn', () => {
-  const tasks = [{ Id: 1, Name: 'A', Suspended: false }, { Id: 2, Name: 'B', Suspended: true }];
+  const tasks = [
+    { Id: 1, Name: 'A', Suspended: false },
+    { Id: 2, Name: 'B', Suspended: true },
+  ];
   assert.equal(c.suspendedCheck([tasks[0]], { Status: 'Running' }).state, 'ok');
   const warn = c.suspendedCheck(tasks, { Status: 'Running' });
   assert.equal(warn.state, 'warn');
@@ -115,7 +148,13 @@ test('license: above 80 % warns, 95 % fails, no limit is not checked', () => {
 });
 
 test('disk and journal space: disks of one filesystem count once; 85 % warns, 95 % or a journal alert fails', () => {
-  const disk = (label, usedPct, same = null) => ({ label, path: `/${label}/`, usedPct, free: 1073741824, sameFilesystemAs: same });
+  const disk = (label, usedPct, same = null) => ({
+    label,
+    path: `/${label}/`,
+    usedPct,
+    free: 1073741824,
+    sameFilesystemAs: same,
+  });
   const ok = c.diskCheck([disk('Install', 58), disk('Journal', 99, 'Install')], 'Normal');
   assert.equal(ok.state, 'ok');
   assert.match(ok.evidence, /Install 58 % used, 1.0 GB free\. Journal space: Normal/);
@@ -149,23 +188,45 @@ test('auditing: disabled warns with a link to the audit screen', () => {
 test('evaluate: every check once, failing first, then warnings, not checked, ok', () => {
   const rows = c.evaluate({
     databases: [db('USER'), db('REPORTS', { Status: 'Dismounted' })],
-    certificates: NA, backups: { history: [] },
-    tasks: [{ Id: 1001, Name: 'Sales export', Suspended: false }], taskHistory: [{ TaskId: 1001, ErrNumber: 0, Result: 'ERROR #5002' }],
-    taskManager: { Status: 'Running' }, licensing: { LicenseLimit: 8, LicenseUse: 0 },
-    disks: [], journalSpace: 'Normal', metrics: { interval: 5, now: 10, points: [[9]] }, audit: { Enabled: true },
+    certificates: NA,
+    backups: { history: [] },
+    tasks: [{ Id: 1001, Name: 'Sales export', Suspended: false }],
+    taskHistory: [{ TaskId: 1001, ErrNumber: 0, Result: 'ERROR #5002' }],
+    taskManager: { Status: 'Running' },
+    licensing: { LicenseLimit: 8, LicenseUse: 0 },
+    disks: [],
+    journalSpace: 'Normal',
+    metrics: { interval: 5, now: 10, points: [[9]] },
+    audit: { Enabled: true },
   });
   assert.equal(rows.length, 11);
   assert.equal(new Set(rows.map((r) => r.id)).size, 11);
-  assert.deepEqual(rows.slice(0, 3).map((r) => [r.id, r.state]), [['dismounted', 'fail'], ['taskruns', 'fail'], ['backup', 'warn']]);
+  assert.deepEqual(
+    rows.slice(0, 3).map((r) => [r.id, r.state]),
+    [
+      ['dismounted', 'fail'],
+      ['taskruns', 'fail'],
+      ['backup', 'warn'],
+    ],
+  );
   assert.deepEqual(rows[3], { ...rows[3], id: 'certificates', state: 'unknown' });
   assert.ok(rows.slice(4).every((r) => r.state === 'ok'));
   assert.deepEqual(c.tally(rows), { fail: 2, warn: 1, unknown: 1, ok: 7 });
 });
 
 test('check copy is plain: no em-dashes in any row', () => {
-  const rows = c.evaluate({ databases: [db('A', { Status: 'Dismounted', GlobalJournalState: false, Size: 99, MaxSize: 100 })],
-    certificates: [{ alias: 'x', date: '2000-01-01' }], backups: { history: [] }, tasks: [], taskHistory: [], taskManager: { Status: 'Suspended' },
-    licensing: { LicenseLimit: 8, LicenseUse: 100 }, disks: [{ label: 'D', path: '/', usedPct: 99, free: 1 }], journalSpace: 'Troubled',
-    metrics: { interval: 5, now: 10, points: [] }, audit: { Enabled: false } });
+  const rows = c.evaluate({
+    databases: [db('A', { Status: 'Dismounted', GlobalJournalState: false, Size: 99, MaxSize: 100 })],
+    certificates: [{ alias: 'x', date: '2000-01-01' }],
+    backups: { history: [] },
+    tasks: [],
+    taskHistory: [],
+    taskManager: { Status: 'Suspended' },
+    licensing: { LicenseLimit: 8, LicenseUse: 100 },
+    disks: [{ label: 'D', path: '/', usedPct: 99, free: 1 }],
+    journalSpace: 'Troubled',
+    metrics: { interval: 5, now: 10, points: [] },
+    audit: { Enabled: false },
+  });
   for (const r of rows) assert.doesNotMatch(`${r.title} ${r.evidence} ${r.advice}`, /—/, r.id);
 });

@@ -3,12 +3,30 @@
 
 // Security.Applications / Security.Services AutheEnabled bits (%sySecurityMacros.inc, IRIS 2026.2).
 export const AUTHE = [
-  [1, 'Kerberos credentials cache'], [2, 'Kerberos prompt'], [4, 'Kerberos'], [8, 'Kerberos keytab'],
-  [16, 'Operating system'], [32, 'Password'], [64, 'Unauthenticated'], [128, 'Kerberos (connection)'],
-  [256, 'Kerberos with encryption'], [512, 'Kerberos with packet integrity'], [2048, 'LDAP'], [4096, 'LDAP cache'],
-  [8192, 'Delegated'], [16384, 'Login cookie'], [32768, 'Kerberos delegated'], [65536, 'OS delegated'],
-  [131072, 'OS LDAP'], [262144, 'X.509'], [524288, 'TLS'], [1048576, 'Two-factor SMS'], [2097152, 'Two-factor TOTP'],
-  [16777216, 'Always try delegated'], [33554432, 'Mutual TLS'], [67108864, 'OAuth 2.0'],
+  [1, 'Kerberos credentials cache'],
+  [2, 'Kerberos prompt'],
+  [4, 'Kerberos'],
+  [8, 'Kerberos keytab'],
+  [16, 'Operating system'],
+  [32, 'Password'],
+  [64, 'Unauthenticated'],
+  [128, 'Kerberos (connection)'],
+  [256, 'Kerberos with encryption'],
+  [512, 'Kerberos with packet integrity'],
+  [2048, 'LDAP'],
+  [4096, 'LDAP cache'],
+  [8192, 'Delegated'],
+  [16384, 'Login cookie'],
+  [32768, 'Kerberos delegated'],
+  [65536, 'OS delegated'],
+  [131072, 'OS LDAP'],
+  [262144, 'X.509'],
+  [524288, 'TLS'],
+  [1048576, 'Two-factor SMS'],
+  [2097152, 'Two-factor TOTP'],
+  [16777216, 'Always try delegated'],
+  [33554432, 'Mutual TLS'],
+  [67108864, 'OAuth 2.0'],
 ];
 
 /** 96 -> ['Password', 'Unauthenticated']; unknown bits come back as numbers. */
@@ -48,7 +66,7 @@ export const READ_ONLY_BY_DEFAULT = new Set(['IRISLIB', 'ENSLIB', 'HSLIB']);
 /** "IRIS for UNIX (Ubuntu ...) 2026.2 (Build 221U) Fri Jun 26 2026" -> "IRIS 2026.2 · build 221U" */
 export function versionLabel(v) {
   const m = /^(\S+).*?\)\s+([\d.]+)\s+\(Build ([^)]+)\)/.exec(v || '');
-  return m ? `${m[1]} ${m[2]} · build ${m[3]}` : (v || 'IRIS');
+  return m ? `${m[1]} ${m[2]} · build ${m[3]}` : v || 'IRIS';
 }
 
 /** "IRIS for UNIX (Ubuntu Server LTS for x86-64 Containers) 2026.2 ..." -> "Ubuntu Server LTS for x86-64 Containers" */
@@ -58,12 +76,19 @@ export function platformLabel(v) {
 }
 
 // iris_mirror_member_type values (the metric's HELP text).
-const MIRROR = { 1: 'indeterminate', 2: 'not a member', 3: 'failover member', 4: 'async member',
-  5: 'disaster recovery async', 6: 'read-only reporting async', 7: 'read-write reporting async' };
+const MIRROR = {
+  1: 'indeterminate',
+  2: 'not a member',
+  3: 'failover member',
+  4: 'async member',
+  5: 'disaster recovery async',
+  6: 'read-only reporting async',
+  7: 'read-write reporting async',
+};
 export const mirrorLabel = (type) => MIRROR[type] || null;
 
 /** Dashboard LicenseUse is a percentage of LicenseLimit units: 13 % of 8 -> 1 unit. */
-export const licenseUnits = (pct, limit) => Math.round((Number(pct) || 0) * (Number(limit) || 0) / 100);
+export const licenseUnits = (pct, limit) => Math.round(((Number(pct) || 0) * (Number(limit) || 0)) / 100);
 
 /** Prometheus text format -> { metric: [{labels, value}] } (comments and blank lines skipped). */
 export function parseMetrics(text) {

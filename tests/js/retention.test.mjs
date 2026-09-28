@@ -15,7 +15,10 @@ test('purgeCutoff refuses 0, negative, fractional and missing values', () => {
 });
 
 test('checkPurge only purges up to a cutoff before the newest record', () => {
-  assert.deepEqual(checkPurge('2026-06-29 00:00:00', '2026-09-27 22:46:29.226'), { BeginDateTime: '', EndDateTime: '2026-06-29 00:00:00' });
+  assert.deepEqual(checkPurge('2026-06-29 00:00:00', '2026-09-27 22:46:29.226'), {
+    BeginDateTime: '',
+    EndDateTime: '2026-06-29 00:00:00',
+  });
   assert.throws(() => checkPurge('2026-09-28 00:00:00', '2026-09-27 22:46:29.226'), /whole trail/);
   assert.throws(() => checkPurge('', '2026-09-27'), /Invalid/);
   assert.throws(() => checkPurge('2026-09-01', '2026-09-27'), /Invalid/);

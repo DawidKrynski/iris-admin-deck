@@ -9,10 +9,19 @@ const notFound = () => Object.assign(new Error('ERROR #838: User x does not exis
 function store(initial) {
   let obj = initial ? { ...initial } : null;
   return {
-    read: async () => { if (!obj) throw notFound(); return { ...obj }; },
-    set: (patch) => { obj = { ...obj, ...patch }; },
-    remove: () => { obj = null; },
-    get value() { return obj; },
+    read: async () => {
+      if (!obj) throw notFound();
+      return { ...obj };
+    },
+    set: (patch) => {
+      obj = { ...obj, ...patch };
+    },
+    remove: () => {
+      obj = null;
+    },
+    get value() {
+      return obj;
+    },
   };
 }
 
@@ -27,7 +36,12 @@ test('normalise treats IRIS flag and list representations as equal', () => {
 
 test('a change that is read back is verified', async () => {
   const s = store({ Name: 'a', Enabled: true });
-  const r = await verifiedChange({ read: s.read, original: s.value, changes: { Enabled: false }, write: async () => s.set({ Enabled: false }) });
+  const r = await verifiedChange({
+    read: s.read,
+    original: s.value,
+    changes: { Enabled: false },
+    write: async () => s.set({ Enabled: false }),
+  });
   assert.equal(r.status, 'verified');
 });
 
@@ -44,7 +58,14 @@ test('a write is refused when the object changed since it was opened', async () 
   s.set({ Description: 'changed by someone else' });
   let wrote = false;
   await assert.rejects(
-    verifiedChange({ read: s.read, original, changes: { Description: 'mine' }, write: async () => { wrote = true; } }),
+    verifiedChange({
+      read: s.read,
+      original,
+      changes: { Description: 'mine' },
+      write: async () => {
+        wrote = true;
+      },
+    }),
     (e) => e instanceof StaleError && e.fields.includes('Description'),
   );
   assert.equal(wrote, false);
@@ -54,7 +75,12 @@ test('unrelated concurrent changes do not block a write', async () => {
   const s = store({ Description: 'x', Comment: 'y' });
   const original = s.value;
   s.set({ Comment: 'changed elsewhere' });
-  const r = await verifiedChange({ read: s.read, original, changes: { Description: 'z' }, write: async () => s.set({ Description: 'z' }) });
+  const r = await verifiedChange({
+    read: s.read,
+    original,
+    changes: { Description: 'z' },
+    write: async () => s.set({ Description: 'z' }),
+  });
   assert.equal(r.status, 'verified');
 });
 
@@ -62,12 +88,18 @@ test('a write is refused when the object was deleted meanwhile', async () => {
   const s = store({ Name: 'a' });
   const original = s.value;
   s.remove();
-  await assert.rejects(verifiedChange({ read: s.read, original, changes: { Name: 'b' }, write: async () => {} }), StaleError);
+  await assert.rejects(
+    verifiedChange({ read: s.read, original, changes: { Name: 'b' }, write: async () => {} }),
+    StaleError,
+  );
 });
 
 test('deletion is verified when the object can no longer be read', async () => {
   const s = store({ Name: 'a' });
-  assert.equal((await verifiedChange({ read: s.read, expect: 'gone', write: async () => s.remove() })).status, 'verified');
+  assert.equal(
+    (await verifiedChange({ read: s.read, expect: 'gone', write: async () => s.remove() })).status,
+    'verified',
+  );
   const t = store({ Name: 'b' });
   assert.equal((await verifiedChange({ read: t.read, expect: 'gone', write: async () => {} })).status, 'not-reflected');
 });
@@ -93,26 +125,40 @@ test('messages name the change and its outcome', () => {
 
 test('password policy flags are verified, password values are not', async () => {
   const s = store({ PasswordNeverExpires: false });
-  const r = await verifiedChange({ read: s.read, changes: { PasswordNeverExpires: true, Password: 'x' }, write: async () => {} });
+  const r = await verifiedChange({
+    read: s.read,
+    changes: { PasswordNeverExpires: true, Password: 'x' },
+    write: async () => {},
+  });
   assert.equal(r.status, 'not-reflected');
   assert.deepEqual(r.mismatched, ['PasswordNeverExpires']);
 });
 
 test('an empty expiration date equals the IRIS "no expiration" date', async () => {
   const s = store({ ExpirationDate: '2030-01-01' });
-  const r = await verifiedChange({ read: s.read, changes: { ExpirationDate: '' }, write: async () => s.set({ ExpirationDate: '1840-12-31' }) });
+  const r = await verifiedChange({
+    read: s.read,
+    changes: { ExpirationDate: '' },
+    write: async () => s.set({ ExpirationDate: '1840-12-31' }),
+  });
   assert.equal(r.status, 'verified');
 });
 
 test('readable key-file paths are compared, key passwords are not', async () => {
   const s = store({ PrivateKeyFile: '/a.key' });
-  const r = await verifiedChange({ read: s.read, changes: { PrivateKeyFile: '/b.key', PrivateKeyPassword: 'x' }, write: async () => {} });
+  const r = await verifiedChange({
+    read: s.read,
+    changes: { PrivateKeyFile: '/b.key', PrivateKeyPassword: 'x' },
+    write: async () => {},
+  });
   assert.deepEqual(r.mismatched, ['PrivateKeyFile']);
 });
 
 test('a read-back that fails is a warning, not a quiet success', async () => {
   let calls = 0;
-  const read = async () => { if (++calls > 0) throw Object.assign(new Error('HTTP 500'), { status: 500 }); };
+  const read = async () => {
+    if (++calls > 0) throw Object.assign(new Error('HTTP 500'), { status: 500 });
+  };
   const r = await verifiedChange({ read, changes: { Enabled: true }, write: async () => {} });
   assert.equal(r.status, 'read-failed');
   const [message, kind] = describeVerification(r, 'Saved');
@@ -122,7 +168,11 @@ test('a read-back that fails is a warning, not a quiet success', async () => {
 
 test('fields the read does not return are named, not counted as verified', async () => {
   const s = store({ Enabled: false });
-  const r = await verifiedChange({ read: s.read, changes: { Enabled: true, Description: 'x' }, write: async () => s.set({ Enabled: true }) });
+  const r = await verifiedChange({
+    read: s.read,
+    changes: { Enabled: true, Description: 'x' },
+    write: async () => s.set({ Enabled: true }),
+  });
   assert.equal(r.status, 'partly-verified');
   assert.deepEqual(r.unchecked, ['Description']);
   assert.match(describeVerification(r, 'Saved')[0], /except Description/);

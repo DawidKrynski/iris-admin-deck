@@ -46,7 +46,9 @@ export function conditions(filters = {}) {
 export function recordsQuery(file, filters = {}, { offset, pageSize = PAGE_SIZE } = {}) {
   const [first] = conditions(filters);
   return {
-    file, reverse: 1, maxRows: pageSize * 2,
+    file,
+    reverse: 1,
+    maxRows: pageSize * 2,
     ...(offset ? { initialOffset: offset } : {}),
     ...(first ? { matchColumnName: first.column, matchOperator: first.operator, matchValue: first.value } : {}),
   };
@@ -56,18 +58,23 @@ export function recordsQuery(file, filters = {}, { offset, pageSize = PAGE_SIZE 
 function test(row, c) {
   const actual = String(row[c.column] ?? '');
   switch (c.operator) {
-    case '[': return actual.includes(c.value);
-    case '>=': return actual >= c.value;
-    case '<=': return actual <= c.value;
-    default: return actual === c.value;
+    case '[':
+      return actual.includes(c.value);
+    case '>=':
+      return actual >= c.value;
+    case '<=':
+      return actual <= c.value;
+    default:
+      return actual === c.value;
   }
 }
 
 // Every records request (and any other background call of the API) is a task that IRIS journals in transactions
 // (^Api.Admin.Util.AsyncTask* in IRISLOCALDATA): without hiding them and the bare BeginTrans/CommitTrans markers
 // around them, the newest records are mostly the explorer's own reads.
-export const isOwnTask = (row) => /^\^Api\.Admin\.Util\.AsyncTask/.test(String(row.GlobalNode || ''))
-  || (/^(?:Begin|Commit)Trans$/.test(String(row.TypeName || '')) && !row.GlobalNode);
+export const isOwnTask = (row) =>
+  /^\^Api\.Admin\.Util\.AsyncTask/.test(String(row.GlobalNode || '')) ||
+  (/^(?:Begin|Commit)Trans$/.test(String(row.TypeName || '')) && !row.GlobalNode);
 
 /** Rows of a returned page that also meet the conditions IRIS did not match (all but the first). */
 export function refine(rows, filters = {}, { hideOwn = false } = {}) {
@@ -80,7 +87,12 @@ export function recordValues(rec) {
   const sk = rec?.SetKill || {};
   const set = /SET/i.test(String(rec?.TypeName || ''));
   const count = Number(sk.NumberOfValues ?? 0);
-  return { hasNew: set && count >= 1, hasOld: !!rec?.InTransaction && count > (set ? 1 : 0), newValue: sk.NewValue, oldValue: sk.OldValue };
+  return {
+    hasNew: set && count >= 1,
+    hasOld: !!rec?.InTransaction && count > (set ? 1 : 0),
+    newValue: sk.NewValue,
+    oldValue: sk.OldValue,
+  };
 }
 
 // Offset of the next (older) page: records come newest first, so it continues below the last address returned.

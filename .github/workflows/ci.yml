@@ -6,7 +6,7 @@ on:
 
 jobs:
   unit:
-    name: JavaScript and Python unit tests
+    name: JavaScript and Python unit tests, lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -16,7 +16,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: node --test tests/js/*.test.mjs
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
       - run: pip install pytest && cd python && python -m pytest -q tests
 
   iris:

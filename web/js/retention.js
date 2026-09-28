@@ -27,7 +27,9 @@ export function checkPurge(cutoff, newest) {
     throw new Error('The newest audit record could not be read; nothing is purged without it.');
   }
   if (String(cutoff) >= String(newest).slice(0, 19)) {
-    throw new Error(`The cutoff ${cutoff} is not before the newest record (${newest}); that would purge the whole trail.`);
+    throw new Error(
+      `The cutoff ${cutoff} is not before the newest record (${newest}); that would purge the whole trail.`,
+    );
   }
   return { BeginDateTime: '', EndDateTime: cutoff };
 }

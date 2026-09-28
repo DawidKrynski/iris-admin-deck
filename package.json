@@ -1,0 +1,17 @@
+{
+  "name": "iris-admin-deck",
+  "private": true,
+  "type": "module",
+  "description": "Development tooling only: the app itself has no build step and no runtime dependencies.",
+  "scripts": {
+    "test": "node --test tests/js/*.test.mjs",
+    "lint": "eslint web/js tests/js",
+    "format": "prettier --write web/js tests/js",
+    "format:check": "prettier --check web/js tests/js"
+  },
+  "devDependencies": {
+    "eslint": "^9.36.0",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2"
+  }
+}

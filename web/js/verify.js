@@ -29,8 +29,18 @@ export function normalise(v) {
   if (v === true || v === 1 || v === '1') return '1';
   if (v === false || v === 0 || v === '0') return '0';
   if (v === null || v === undefined) return '';
-  if (Array.isArray(v)) return v.map(normalise).map((x) => JSON.stringify(x)).sort().join('\u0001');
-  if (typeof v === 'object') return JSON.stringify(Object.keys(v).sort().map((k) => [k, normalise(v[k])]));
+  if (Array.isArray(v))
+    return v
+      .map(normalise)
+      .map((x) => JSON.stringify(x))
+      .sort()
+      .join('\u0001');
+  if (typeof v === 'object')
+    return JSON.stringify(
+      Object.keys(v)
+        .sort()
+        .map((k) => [k, normalise(v[k])]),
+    );
   return String(v);
 }
 export const same = (a, b) => normalise(a) === normalise(b);
@@ -87,15 +97,26 @@ export async function verifiedChange({ read, write, original, changes = {}, expe
   const checkable = keys.filter((k) => after && k in after);
   const mismatched = checkable.filter((k) => !sameField(k, after[k], changes[k]));
   const unchecked = keys.filter((k) => !checkable.includes(k));
-  const status = mismatched.length ? 'not-reflected' : !checkable.length ? 'unverified' : unchecked.length ? 'partly-verified' : 'verified';
+  const status = mismatched.length
+    ? 'not-reflected'
+    : !checkable.length
+      ? 'unverified'
+      : unchecked.length
+        ? 'partly-verified'
+        : 'verified';
   return { result, status, mismatched, unchecked, after };
 }
 
 /** Short human message for a verification outcome. */
 export function describeVerification({ status, mismatched, unchecked = [], error }, what = 'Change') {
   if (status === 'verified') return [`${what}. Read back: OK`, 'ok'];
-  if (status === 'partly-verified') return [`${what}. Read back: OK, except ${unchecked.join(', ')}, which the API does not return`, 'ok'];
+  if (status === 'partly-verified')
+    return [`${what}. Read back: OK, except ${unchecked.join(', ')}, which the API does not return`, 'ok'];
   if (status === 'not-reflected') return [`${what}, but the read-back differs: ${mismatched.join(', ')}`, 'warn'];
-  if (status === 'read-failed') return [`${what}, but reading it back failed${error && error.message ? `: ${error.message}` : ''}. Check it before relying on it`, 'warn'];
+  if (status === 'read-failed')
+    return [
+      `${what}, but reading it back failed${error && error.message ? `: ${error.message}` : ''}. Check it before relying on it`,
+      'warn',
+    ];
   return [`${what}. Accepted; nothing to read back`, 'ok'];
 }

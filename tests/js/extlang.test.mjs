@@ -4,8 +4,15 @@ import assert from 'node:assert/strict';
 import { customKeys, builtIn, flatten, serverBody } from '../../web/js/extlang.js';
 
 // As GET /v2/ext-lang-server returns it (IRIS 2026.2).
-const python = { BindToIPAddress: '127.0.0.1', ConnectionTimeout: 5, Port: 53472, Resource: '%Gateway_Object', Type: 'Python',
-  UseSharedMemory: false, Custom: { PythonOptions: '', PythonPath: '' } };
+const python = {
+  BindToIPAddress: '127.0.0.1',
+  ConnectionTimeout: 5,
+  Port: 53472,
+  Resource: '%Gateway_Object',
+  Type: 'Python',
+  UseSharedMemory: false,
+  Custom: { PythonOptions: '', PythonPath: '' },
+};
 
 test('customKeys follows the server type', () => {
   assert.deepEqual(customKeys('Python'), ['PythonPath', 'PythonOptions']);
@@ -31,12 +38,17 @@ test('an edit sends only what changed, always with Type', () => {
   assert.deepEqual(serverBody(flatten(python), python), {});
   assert.deepEqual(serverBody({ ...flatten(python), Port: 53499 }, python), { Port: 53499, Type: 'Python' });
   // A changed Custom setting sends the whole Custom object.
-  assert.deepEqual(serverBody({ ...flatten(python), PythonOptions: '-u' }, python),
-    { Custom: { PythonOptions: '-u', PythonPath: '' }, Type: 'Python' });
+  assert.deepEqual(serverBody({ ...flatten(python), PythonOptions: '-u' }, python), {
+    Custom: { PythonOptions: '-u', PythonPath: '' },
+    Type: 'Python',
+  });
 });
 
 test('a new server nests the type-specific settings in Custom', () => {
-  assert.deepEqual(serverBody({ Type: 'Python', Port: 53499, PythonPath: '/usr/bin/python3' }),
-    { Type: 'Python', Port: 53499, Custom: { PythonPath: '/usr/bin/python3' } });
+  assert.deepEqual(serverBody({ Type: 'Python', Port: 53499, PythonPath: '/usr/bin/python3' }), {
+    Type: 'Python',
+    Port: 53499,
+    Custom: { PythonPath: '/usr/bin/python3' },
+  });
   assert.deepEqual(serverBody({ Type: 'ODBC', Port: 53998 }), { Type: 'ODBC', Port: 53998 });
 });

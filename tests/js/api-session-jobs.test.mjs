@@ -16,8 +16,14 @@ test('both clients refresh proactively; concurrent refresh shares one request; l
   try {
     for (const client of [admin, ext]) {
       client.setTokens({ access_token: token(Date.now() / 1000 + 2), refresh_token: 'refresh' });
-      let calls = 0; let resolve;
-      globalThis.fetch = () => { calls++; return new Promise((r) => { resolve = r; }); };
+      let calls = 0;
+      let resolve;
+      globalThis.fetch = () => {
+        calls++;
+        return new Promise((r) => {
+          resolve = r;
+        });
+      };
       const keepAlive = client.keepAlive();
       const shared = client.refresh();
       assert.equal(calls, 1);
@@ -31,7 +37,10 @@ test('both clients refresh proactively; concurrent refresh shares one request; l
       await assert.rejects(late, /Signed out/);
       assert.equal(client.loggedIn, false);
     }
-  } finally { globalThis.fetch = async () => response({}); await logout(); }
+  } finally {
+    globalThis.fetch = async () => response({});
+    await logout();
+  }
 });
 test('202 method/path fallback, polling progress, final state and monitoring errors', async () => {
   globalThis.fetch = async () => response({}, 202, { Location: '/v2/async-result?id=test-id' });
@@ -43,7 +52,9 @@ test('202 method/path fallback, polling progress, final state and monitoring err
   assert.equal(jobs.list()[0].label, 'POST /v2/example');
   assert.equal(jobs.list()[0].message, 'Reading');
   assert.notEqual(jobs.list()[0].ended, null);
-  globalThis.fetch = async () => { throw new Error('Offline'); };
+  globalThis.fetch = async () => {
+    throw new Error('Offline');
+  };
   await assert.rejects(waitAsync('failed', { label: 'Audit copy' }), /Offline/);
   assert.equal(jobs.list().at(-1).state, 'Monitoring failed');
   jobs.clear();

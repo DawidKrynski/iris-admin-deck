@@ -20,18 +20,29 @@ const LETTERS = ['R', 'W', 'U'];
 export function snapshot({ users = [], roles = {}, resources = [] }) {
   const roleMap = new Map();
   for (const [name, r] of roles instanceof Map ? roles : Object.entries(roles)) {
-    roleMap.set(key(name), { Name: r.Name || name,GrantedRoles: [...(r.GrantedRoles || [])], Resources: (r.Resources || []).map((x) => ({ ...x })) });
+    roleMap.set(key(name), {
+      Name: r.Name || name,
+      GrantedRoles: [...(r.GrantedRoles || [])],
+      Resources: (r.Resources || []).map((x) => ({ ...x })),
+    });
   }
   const pub = new Map();
-  for (const r of resources) if (r.PublicPermission) pub.set(key(r.Name), { Name: r.Name, Permissions: r.PublicPermission });
-  return { users: users.map((u) => ({ Name: u.Name, Enabled: !!u.Enabled, Roles: [...(u.Roles || [])] })), roles: roleMap, public: pub };
+  for (const r of resources)
+    if (r.PublicPermission) pub.set(key(r.Name), { Name: r.Name, Permissions: r.PublicPermission });
+  return {
+    users: users.map((u) => ({ Name: u.Name, Enabled: !!u.Enabled, Roles: [...(u.Roles || [])] })),
+    roles: roleMap,
+    public: pub,
+  };
 }
 
 /** Lower-case names of every role `direct` gives, including roles granted through other roles. */
 export function heldRoles(direct, model) {
-  const held = new Set(); const queue = direct.map(key);
+  const held = new Set();
+  const queue = direct.map(key);
   while (queue.length) {
-    const r = queue.shift(); if (held.has(r)) continue;
+    const r = queue.shift();
+    if (held.has(r)) continue;
     held.add(r);
     for (const g of (model.roles.get(r) || {}).GrantedRoles || []) queue.push(key(g));
   }
@@ -44,8 +55,15 @@ export function effective(user, model) {
   if (roles.has(ALL)) return { all: true, grants: new Map() };
   const grants = new Map();
   const add = (name, perms) => {
-    const k = key(name); if (!grants.has(k)) grants.set(k, { Name: name, letters: new Set() });
-    for (const p of LETTERS) if (String(perms || '').toUpperCase().includes(p)) grants.get(k).letters.add(p);
+    const k = key(name);
+    if (!grants.has(k)) grants.set(k, { Name: name, letters: new Set() });
+    for (const p of LETTERS)
+      if (
+        String(perms || '')
+          .toUpperCase()
+          .includes(p)
+      )
+        grants.get(k).letters.add(p);
   };
   for (const r of roles) for (const res of (model.roles.get(r) || {}).Resources || []) add(res.Name, res.Permissions);
   for (const res of model.public.values()) add(res.Name, res.Permissions);
@@ -60,7 +78,9 @@ export function effective(user, model) {
  *   {kind: 'deleteUser', user}
  */
 export function withChange(model, change) {
-  const roles = new Map([...model.roles].map(([k, r]) => [k, { ...r, GrantedRoles: [...r.GrantedRoles], Resources: [...r.Resources] }]));
+  const roles = new Map(
+    [...model.roles].map(([k, r]) => [k, { ...r, GrantedRoles: [...r.GrantedRoles], Resources: [...r.Resources] }]),
+  );
   let users = model.users.map((u) => ({ ...u, Roles: [...u.Roles] }));
   const target = key(change.role || change.user || '');
   if (change.kind === 'deleteRole') {
@@ -73,9 +93,15 @@ export function withChange(model, change) {
     if (change.Resources) r.Resources = change.Resources.map((x) => ({ ...x }));
     roles.set(target, r);
   } else if (change.kind === 'updateUser') {
-    users = users.map((u) => (key(u.Name) !== target ? u : {
-      ...u, ...(change.Roles ? { Roles: [...change.Roles] } : {}), ...('Enabled' in change ? { Enabled: !!change.Enabled } : {}),
-    }));
+    users = users.map((u) =>
+      key(u.Name) !== target
+        ? u
+        : {
+            ...u,
+            ...(change.Roles ? { Roles: [...change.Roles] } : {}),
+            ...('Enabled' in change ? { Enabled: !!change.Enabled } : {}),
+          },
+    );
   } else if (change.kind === 'deleteUser') {
     users = users.filter((u) => key(u.Name) !== target);
   } else throw new Error(`Unknown change: ${change.kind}`);
@@ -91,9 +117,13 @@ export function lostAccess(before, after) {
   const out = [];
   for (const u of before.users) {
     if (!u.Enabled || !now.has(key(u.Name))) continue;
-    const b = effective(u, before); const a = effective(now.get(key(u.Name)), after);
+    const b = effective(u, before);
+    const a = effective(now.get(key(u.Name)), after);
     if (a.all) continue;
-    if (b.all) { out.push({ Name: u.Name, lost: ['%All'] }); continue; }
+    if (b.all) {
+      out.push({ Name: u.Name, lost: ['%All'] });
+      continue;
+    }
     const lost = [];
     for (const [k, g] of b.grants) {
       const left = a.grants.get(k);
@@ -124,10 +154,20 @@ export function reducesRole(original, updated) {
     if ((original.GrantedRoles || []).some((g) => !kept.has(key(g)))) return true;
   }
   if ('Resources' in updated) {
-    const next = new Map((updated.Resources || []).map((r) => [key(r.Name), String(r.Permissions || '').toUpperCase()]));
+    const next = new Map(
+      (updated.Resources || []).map((r) => [key(r.Name), String(r.Permissions || '').toUpperCase()]),
+    );
     for (const r of original.Resources || []) {
       const left = next.get(key(r.Name)) || '';
-      if (LETTERS.some((p) => String(r.Permissions || '').toUpperCase().includes(p) && !left.includes(p))) return true;
+      if (
+        LETTERS.some(
+          (p) =>
+            String(r.Permissions || '')
+              .toUpperCase()
+              .includes(p) && !left.includes(p),
+        )
+      )
+        return true;
     }
   }
   return false;
@@ -152,9 +192,13 @@ export function capList(items, max = 20) {
  */
 export async function loadAccess(get, extraRoles = []) {
   const [list, resources] = await Promise.all([get('/v2/security/users'), get('/v2/security/resources')]);
-  const users = await Promise.all(list.map(async (u) => (u.Enabled
-    ? { Name: u.Name, Enabled: true, Roles: (await get('/v2/security/user', { name: u.Name })).Roles || [] }
-    : { Name: u.Name, Enabled: false, Roles: [] })));
+  const users = await Promise.all(
+    list.map(async (u) =>
+      u.Enabled
+        ? { Name: u.Name, Enabled: true, Roles: (await get('/v2/security/user', { name: u.Name })).Roles || [] }
+        : { Name: u.Name, Enabled: false, Roles: [] },
+    ),
+  );
   const roles = new Map();
   const next = (names) => {
     const wave = new Map(); // key -> the first spelling seen

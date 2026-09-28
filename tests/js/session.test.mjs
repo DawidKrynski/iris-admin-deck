@@ -11,7 +11,8 @@ test('expired and nearly expired tokens have bounded delays', () => {
 });
 test('idle deadline wins over token expiry and cannot be revived after sleep', () => {
   assert.equal(sessionSchedule(300, 0, IDLE_MS - 500).delay, 500);
-  for (const now of [IDLE_MS, IDLE_MS + 90000]) assert.deepEqual(sessionSchedule(300, 0, now), { expired: true, delay: 0 });
+  for (const now of [IDLE_MS, IDLE_MS + 90000])
+    assert.deepEqual(sessionSchedule(300, 0, now), { expired: true, delay: 0 });
   assert.equal(sessionSchedule(60, IDLE_MS - 1, IDLE_MS).expired, false);
 });
 test('unreadable JWT expiry still enforces inactivity', () => {

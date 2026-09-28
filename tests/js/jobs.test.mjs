@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createJobs } from '../../web/js/jobs.js';
 test('tracks progress, last message and completion without retaining results', () => {
-  const jobs = createJobs(); let notifications = 0;
+  const jobs = createJobs();
+  let notifications = 0;
   jobs.subscribe(() => notifications++);
   const job = jobs.start('1', 'Integrity check');
   jobs.update(job, { State: 'Running', Console: ['Starting', 'Reading'] }, false);
@@ -16,12 +17,14 @@ test('tracks progress, last message and completion without retaining results', (
   assert.equal(notifications, 3);
 });
 test('retains at most 20 finished jobs and all active jobs; clears across sessions', () => {
-  const jobs = createJobs(); const active = jobs.start('active', 'Active');
+  const jobs = createJobs();
+  const active = jobs.start('active', 'Active');
   for (let i = 0; i < 25; i++) jobs.update(jobs.start(String(i), 'Test'), { State: 'Finished' }, true);
   assert.equal(jobs.list().length, 21);
   assert.equal(jobs.list()[0].id, 'active');
   assert.equal(jobs.list()[1].id, '5');
-  jobs.clear(); jobs.update(active, { State: 'Finished' }, true);
+  jobs.clear();
+  jobs.update(active, { State: 'Finished' }, true);
   assert.deepEqual(jobs.list(), []);
 });
 test('opening an already tracked task does not count it twice', () => {

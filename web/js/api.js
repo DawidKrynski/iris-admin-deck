@@ -20,18 +20,31 @@ const SENSITIVE = /password$|secret|privatekey|token$/i;
 export function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k,
-      SENSITIVE.test(k) && v !== '' && v !== null && typeof v !== 'boolean' ? '***' : redact(v)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [
+        k,
+        SENSITIVE.test(k) && v !== '' && v !== null && typeof v !== 'boolean' ? '***' : redact(v),
+      ]),
+    );
   }
   return value;
 }
 
 const listeners = new Set();
 /** Subscribe to every API call (used by the API console drawer). */
-export function onCall(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+export function onCall(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
 const emit = (entry) => {
   const safe = { ...entry, body: redact(entry.body) };
-  listeners.forEach((fn) => { try { fn(safe); } catch { /* ignore */ } });
+  listeners.forEach((fn) => {
+    try {
+      fn(safe);
+    } catch {
+      /* ignore */
+    }
+  });
 };
 
 function store(key, value) {
@@ -39,7 +52,9 @@ function store(key, value) {
     if (value === undefined) return JSON.parse(sessionStorage.getItem(key) || 'null');
     if (value === null) sessionStorage.removeItem(key);
     else sessionStorage.setItem(key, JSON.stringify(value));
-  } catch { return null; }
+  } catch {
+    return null;
+  }
   return value;
 }
 
@@ -71,10 +86,13 @@ let expiring = false;
 let idleTimer;
 function scheduleIdle() {
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => {
-    if (sessionSchedule(null, lastActivity).expired) expireSession();
-    else scheduleIdle();
-  }, Math.max(0, lastActivity + IDLE_MS - Date.now()));
+  idleTimer = setTimeout(
+    () => {
+      if (sessionSchedule(null, lastActivity).expired) expireSession();
+      else scheduleIdle();
+    },
+    Math.max(0, lastActivity + IDLE_MS - Date.now()),
+  );
 }
 function expireSession() {
   if (expiring) return;
@@ -92,7 +110,9 @@ class Client {
     this.generation = 0; // bumped on login/logout so late refresh results are discarded
   }
 
-  get loggedIn() { return !!(this.tokens && this.tokens.access_token); }
+  get loggedIn() {
+    return !!(this.tokens && this.tokens.access_token);
+  }
 
   async login(user, password) {
     const res = await fetch(`${this.base}/login`, {
@@ -101,7 +121,8 @@ class Client {
       body: JSON.stringify({ user, password }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.access_token) throw new ApiError(errorMessage(data, res.status) || 'Login failed', res.status, data);
+    if (!res.ok || !data.access_token)
+      throw new ApiError(errorMessage(data, res.status) || 'Login failed', res.status, data);
     this.generation++;
     this.setTokens(data);
   }
@@ -117,7 +138,10 @@ class Client {
     clearTimeout(this.timer);
     if (!this.loggedIn) return;
     const plan = sessionSchedule(jwtExpiresIn(this.tokens.access_token), lastActivity);
-    this.timer = setTimeout(() => this.keepAlive(), retryMs ? Math.min(Math.max(0, lastActivity + IDLE_MS - Date.now()), retryMs) : plan.delay);
+    this.timer = setTimeout(
+      () => this.keepAlive(),
+      retryMs ? Math.min(Math.max(0, lastActivity + IDLE_MS - Date.now()), retryMs) : plan.delay,
+    );
   }
 
   async keepAlive() {
@@ -167,7 +191,9 @@ class Client {
           throw new ApiError('Session expired', 401, data);
         }
         this.setTokens(data);
-      })().finally(() => { if (this.refreshing === pending) this.refreshing = null; });
+      })().finally(() => {
+        if (this.refreshing === pending) this.refreshing = null;
+      });
       this.refreshing = pending;
     }
     return this.refreshing;
@@ -182,18 +208,21 @@ class Client {
     const url = `${this.base}${path}${buildQuery(query)}`;
     const started = performance.now();
     const gen = this.generation; // the session this request belongs to
-    const doFetch = () => fetch(url, {
-      method,
-      headers: {
-        Accept: 'application/json',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...(this.tokens ? { Authorization: `Bearer ${this.tokens.access_token}` } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    const doFetch = () =>
+      fetch(url, {
+        method,
+        headers: {
+          Accept: 'application/json',
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...(this.tokens ? { Authorization: `Bearer ${this.tokens.access_token}` } : {}),
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
     if (this.refreshing) await this.refreshing.catch(() => {});
     // A request must never be sent (or retried) with another sign-in's tokens.
-    const sameSession = () => { if (gen !== this.generation) throw new ApiError('Signed out', 401); };
+    const sameSession = () => {
+      if (gen !== this.generation) throw new ApiError('Signed out', 401);
+    };
     sameSession();
     let res = await doFetch();
     if (res.status === 401 && this.tokens) {
@@ -209,7 +238,11 @@ class Client {
     }
     const text = await res.text();
     let payload = null;
-    try { payload = text ? JSON.parse(text) : null; } catch { payload = { raw: text }; }
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = { raw: text };
+    }
     emit({ method, url, body, status: res.status, ms: Math.round(performance.now() - started) });
     if (res.status === 401 && !quiet) window.dispatchEvent(new CustomEvent('session-expired'));
     const st = payload && payload.status;
@@ -229,10 +262,18 @@ class Client {
     return payload && Object.prototype.hasOwnProperty.call(payload, 'result') ? payload.result : payload;
   }
 
-  get(path, query) { return this.request('GET', path, { query }); }
-  post(path, body, query) { return this.request('POST', path, { body: body ?? {}, query }); }
-  put(path, body, query) { return this.request('PUT', path, { body, query }); }
-  del(path, query) { return this.request('DELETE', path, { query }); }
+  get(path, query) {
+    return this.request('GET', path, { query });
+  }
+  post(path, body, query) {
+    return this.request('POST', path, { body: body ?? {}, query });
+  }
+  put(path, body, query) {
+    return this.request('PUT', path, { body, query });
+  }
+  del(path, query) {
+    return this.request('DELETE', path, { query });
+  }
 }
 
 // When IRIS is published under a path prefix by a reverse proxy (e.g. https://host/demo/admindeck/),
@@ -282,11 +323,16 @@ export async function waitAsync(id, { interval = 1500, timeoutMs = 10 * 60 * 100
       jobs.update(job, task, done);
       if (onUpdate) onUpdate(task);
       if (done) return task;
-      if (Date.now() > until) throw new ApiError(`Background task ${id} is still running; monitoring timed out`, 408, task);
+      if (Date.now() > until)
+        throw new ApiError(`Background task ${id} is still running; monitoring timed out`, 408, task);
       await new Promise((r) => setTimeout(r, interval));
     }
   } catch (e) {
-    jobs.update(job, { State: e.status === 408 ? 'Monitoring timed out' : 'Monitoring failed', Message: e.message }, true);
+    jobs.update(
+      job,
+      { State: e.status === 408 ? 'Monitoring timed out' : 'Monitoring failed', Message: e.message },
+      true,
+    );
     throw e;
   }
 }
@@ -321,7 +367,9 @@ export function jwtExpiresIn(token, now = Date.now()) {
     const part = String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
     const exp = JSON.parse(atob(part + '='.repeat((4 - (part.length % 4)) % 4))).exp;
     return typeof exp === 'number' ? exp - now / 1000 : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -332,7 +380,8 @@ export function jwtExpiresIn(token, now = Date.now()) {
  * Resolves with {status, statusText, headers: [[name, value]], body (text), ms}.
  */
 export async function rawCall(method, path, { body, auth = true } = {}) {
-  if (auth && admin.loggedIn && (jwtExpiresIn(admin.tokens.access_token) ?? 60) < 5) await admin.refresh().catch(() => {});
+  if (auth && admin.loggedIn && (jwtExpiresIn(admin.tokens.access_token) ?? 60) < 5)
+    await admin.refresh().catch(() => {});
   const url = `${PREFIX}${path}`;
   const started = performance.now();
   const res = await fetch(url, {
@@ -359,7 +408,8 @@ export async function rawCall(method, path, { body, auth = true } = {}) {
 export function curl(method, url, body, { basic = false } = {}) {
   const full = url.startsWith('http') ? url : `${location.origin}${url.startsWith(PREFIX + '/') ? '' : PREFIX}${url}`;
   let cmd = `curl -X ${method} ${basic ? '-u "$IRIS_USER"' : '-H "Authorization: Bearer $TOKEN"'}`;
-  if (body !== undefined) cmd += ` -H "Content-Type: application/json" -d '${JSON.stringify(redact(body)).replace(/'/g, "'\\''")}'`;
+  if (body !== undefined)
+    cmd += ` -H "Content-Type: application/json" -d '${JSON.stringify(redact(body)).replace(/'/g, "'\\''")}'`;
   return `${cmd} '${full}'`;
 }
 
@@ -371,11 +421,18 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     lastActivity = Date.now();
     store(activityKey, lastActivity);
   };
-  for (const name of ['pointerdown', 'pointermove', 'keydown']) document.addEventListener(name, activity, { passive: true });
+  for (const name of ['pointerdown', 'pointermove', 'keydown'])
+    document.addEventListener(name, activity, { passive: true });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { admin.keepAlive(); ext.keepAlive(); }
+    if (document.visibilityState === 'visible') {
+      admin.keepAlive();
+      ext.keepAlive();
+    }
   });
   admin.schedule();
   ext.schedule();
-  if (admin.loggedIn) { store(activityKey, lastActivity); scheduleIdle(); }
+  if (admin.loggedIn) {
+    store(activityKey, lastActivity);
+    scheduleIdle();
+  }
 }
