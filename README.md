@@ -216,10 +216,10 @@ Changes go through `/api/admin/v2`, with one exception: Interoperability product
 doesn't cover. Start, stop, update and recover call `Ens.Director`, and the server checks the caller's
 `%Admin_Operate` and `%Ens_ProductionRun` on every request. Everything else in the extension API only reads:
 log files from an allow-list in the manager directory, `SYS.ApplicationError`, `/proc`, backup history
-(`Backup.Task`) and the vector index. The front end is plain ES modules
-with no build step and no third-party runtime dependencies; IPM installs it as files. A small sampler
-(`AdminDeck.Metrics`) records a sample every 5 seconds and keeps 720 of them, so the charts show the last
-hour as soon as you open them.
+(`Backup.Task`) and the vector index. The front end is plain ES modules with no build step and no
+third-party runtime dependencies; IPM installs it as files. A small sampler (`AdminDeck.Metrics`) records a
+sample every 5 seconds and keeps the last 720 in IRISTEMP, which is not journaled, so the charts show the
+last hour as soon as you open them.
 
 More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
