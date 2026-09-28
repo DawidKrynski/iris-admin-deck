@@ -209,6 +209,10 @@ are also reported as accepted, not read back, and the API explorer sends raw cal
 
 This is not a lock. A change made in the few milliseconds between the re-read and the write is not caught.
 
+Before a role is deleted, loses a permission or is taken from a user, the confirmation lists the enabled
+users who lose access and what they lose. The UI refuses any change that would leave no enabled user holding
+`%All`.
+
 Deleting a named object asks you to type its name. Terminating a process first checks that the PID still
 belongs to the same job. The UI won't disable or delete its own web applications, `%Service_WebGateway`
 or the account you are signed in with.

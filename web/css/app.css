@@ -321,6 +321,10 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 1px 5px; border: 1px
 .palette-empty { padding: 12px; }
 .palette-hint { padding: 8px 14px; border-top: 1px solid var(--border); background: var(--bg); }
 .confirm-type code { font-weight: 700; }
+.access-check { margin: 8px 0 12px; }
+.access-losers { margin: 4px 0 8px; padding-left: 20px; max-height: 260px; overflow: auto; font-size: 13px; }
+.access-losers li { margin: 2px 0; overflow-wrap: anywhere; }
+.access-check .refusal { margin-top: 8px; }
 @media (max-width: 860px) {
   .search-button kbd { display: none; }
   .topbar .search-button { min-width: 0; }

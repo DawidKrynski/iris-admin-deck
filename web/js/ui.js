@@ -156,14 +156,18 @@ export async function applyVerified(options, what) {
  * call:    {method, path, body}, or an array of them when the action makes several calls
  * verify:  {read, original?, changes?, expect?} — makes it a verified change (verify.js)
  * confirmText: when set, the user must type this text (e.g. the object's name) to confirm.
+ * check:   async () => {body, refuse} run when the dialog opens (who loses what, see impact.js); the confirm
+ *          button stays disabled until it answers, and for good when `refuse` is set or the check fails.
  */
-export function confirmAction({ title, message, call, danger = false, confirmLabel = 'Confirm', run, done, verify, confirmText }) {
+export function confirmAction({ title, message, call, danger = false, confirmLabel = 'Confirm', run, done, verify, confirmText, check }) {
   return new Promise((resolve) => {
     const typed = confirmText ? h('input', { type: 'text', autocomplete: 'off', 'aria-label': `Type ${confirmText} to confirm` }) : null;
-    let busy = false;
+    const checked = check ? h('div.access-check', loading('Checking who is affected…')) : null;
+    let busy = false; let blocked = !!check;
     const matches = () => !typed || typed.value === confirmText;
     const m = modal(title, [
       h('p', message),
+      checked,
       typed ? h('div.field.confirm-type', h('label', 'Type ', h('code', confirmText), ' to confirm'), typed) : null,
       call ? [call].flat().map((c) => apiCallPreview(c.method, c.path, c.body)) : null,
     ], {
@@ -173,9 +177,9 @@ export function confirmAction({ title, message, call, danger = false, confirmLab
         {
           label: confirmLabel,
           kind: danger ? 'danger' : 'primary',
-          disabled: () => busy || !matches(),
+          disabled: () => busy || blocked || !matches(),
           onclick: async () => {
-            if (!matches()) return false;
+            if (blocked || !matches()) return false;
             busy = true;
             try {
               let r;
@@ -190,12 +194,20 @@ export function confirmAction({ title, message, call, danger = false, confirmLab
         },
       ],
     });
+    // The confirm button stays disabled until the exact text is typed and the check has passed.
+    const confirmBtn = m.el.querySelector('footer button:last-child');
+    const sync = () => { confirmBtn.disabled = busy || blocked || !matches(); };
+    sync();
     if (typed) {
-      // The confirm button stays disabled until the exact text is typed.
-      const confirmBtn = m.el.querySelector('footer button:last-child');
-      confirmBtn.disabled = true;
-      typed.addEventListener('input', () => { confirmBtn.disabled = busy || !matches(); });
+      typed.addEventListener('input', sync);
       typed.focus();
+    }
+    if (check) {
+      check().then(({ body, refuse }) => {
+        blocked = !!refuse;
+        clear(checked, body, refuse ? h('div.error-box.refusal', h('strong', refuse)) : null);
+      }, (e) => clear(checked, h('div.error-box.refusal', h('strong', 'Could not work out who is affected, so this change is blocked: '), e.message)))
+        .finally(sync);
     }
   });
 }

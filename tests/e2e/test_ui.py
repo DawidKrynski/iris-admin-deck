@@ -7,6 +7,7 @@ Uses a throw-away web application named per run and always removes it. Exits non
 """
 import json
 import os
+import secrets
 import sys
 import urllib.request
 
@@ -214,6 +215,26 @@ def run_ui_checks(page):
         assert page.locator("main .error-box").count() == 0
         assert "Items" in page.locator("main").inner_text() or "ITEMS" in page.locator("main").inner_text()
     print("ok   interoperability screen")
+
+    # 8. Deleting a role lists the users who lose access; Cancel leaves the role in place.
+    role, user = f"zzuirole{os.getpid()}", f"zzuiuser{os.getpid()}"
+    try:
+        api("PUT", f"/v2/security/role?name={role}", {"Description": "UI test", "Resources": [{"Name": "%DB_USER", "Permissions": "RW"}]})
+        api("POST", f"/v2/security/user?name={user}", {"User": {"Enabled": True, "Roles": [role]}, "Password": secrets.token_urlsafe(16)})
+        assert api("GET", f"/v2/security/user?name={user}")["result"]["Roles"] == [role]
+        page.goto(f"{UI}#/dashboard")
+        page.goto(f"{UI}#/roles/roles/{role}")
+        page.wait_for_selector(".modal button.danger:has-text('Delete')")
+        page.click(".modal button.danger:has-text('Delete')")
+        dialog = page.locator(".modal").last
+        expect(dialog.locator(".access-losers")).to_contain_text(user, timeout=30_000)
+        expect(dialog.locator(".access-losers")).to_contain_text("%DB_USER:RW")
+        dialog.locator("footer button:has-text('Cancel')").click()
+        assert not api("GET", f"/v2/security/role?name={role}")["status"]["errors"], "role deleted on cancel"
+        print("ok   role delete lists who loses access; cancel keeps the role")
+    finally:
+        api("DELETE", f"/v2/security/user?name={user}")
+        api("DELETE", f"/v2/security/role?name={role}")
 
 
 if __name__ == "__main__":

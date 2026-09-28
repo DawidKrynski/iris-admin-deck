@@ -1,6 +1,7 @@
 import { admin } from '../api.js';
 import { can, session } from '../app.js';
 import { h, page, table, load, modal, confirmAction, applyVerified, objectForm, diff, kv, badge, toast, toastError, apiCallPreview, button, toolbar, clear, icon } from '../ui.js';
+import { accessCheck } from '../impact.js';
 
 const path = (name) => `/api/admin/v2/security/user?name=${encodeURIComponent(name)}`;
 const readUser = (name) => admin.get('/v2/security/user', { name });
@@ -41,6 +42,7 @@ async function details(name, reload) {
         message: u.Enabled ? 'This user will no longer be able to sign in.' : 'This user will be able to sign in again.',
         call: { method: 'PUT', path: path(name), body: { Enabled: !u.Enabled } }, danger: u.Enabled,
         run: () => admin.put('/v2/security/user', { Enabled: !u.Enabled }, { name }), done: 'User updated',
+        check: u.Enabled ? accessCheck({ kind: 'updateUser', user: name, Enabled: false }, { list: false }) : null,
         verify: { read: () => readUser(name), changes: { Enabled: !u.Enabled } },
       }).then((ok) => { if (ok) { m.close(); reload(); } })) : null,
       can('Secure') ? button('Change password', () => password(name)) : null,
@@ -48,6 +50,7 @@ async function details(name, reload) {
         title: `Delete ${name}`, message: 'This permanently deletes the user account and its direct role assignments.',
         call: { method: 'DELETE', path: path(name) }, danger: true, confirmLabel: 'Delete',
         confirmText: name, run: () => admin.del('/v2/security/user', { name }),
+        check: accessCheck({ kind: 'deleteUser', user: name }, { list: false }),
         verify: { read: () => readUser(name), expect: 'gone' }, done: 'User deleted',
       }).then((ok) => { if (ok) { m.close(); reload(); } }) }, 'Delete') : null),
     h('h3', 'Direct roles'), h('div.toolbar', (u.Roles || []).map((role) => badge(role))),
@@ -89,11 +92,25 @@ async function edit(user, reload) {
         try {
           const c = build();
           if (!fresh && !Object.keys(c.payload).length) { toast('No changes', 'warn'); return; }
-          await applyVerified({
-            ...(!fresh ? { original: user, changes: c.payload } : { expect: 'exists' }),
-            read: () => readUser(c.name),
-            write: () => fresh ? privatePost('/v2/security/user', c.payload, c.name) : admin.put('/v2/security/user', c.payload, { name: c.name }),
-          }, fresh ? 'User created' : 'User saved');
+          const write = () => fresh ? privatePost('/v2/security/user', c.payload, c.name) : admin.put('/v2/security/user', c.payload, { name: c.name });
+          const removed = !fresh && c.payload.Roles ? (user.Roles || []).filter((r) => !c.payload.Roles.includes(r)) : [];
+          const disabling = !fresh && c.payload.Enabled === false;
+          // Removing roles or disabling first shows who loses what and refuses to leave no %All holder.
+          if (removed.length || disabling) {
+            const ok = await confirmAction({
+              title: `Save ${c.name}`,
+              message: [disabling ? 'This user will no longer be able to sign in.' : null, removed.length ? `Roles removed: ${removed.join(', ')}.` : null].filter(Boolean).join(' '),
+              call: { method: 'PUT', path: path(c.name), body: c.payload }, danger: true, confirmLabel: 'Save changes',
+              check: accessCheck({ kind: 'updateUser', user: c.name, ...c.payload }, { list: removed.length > 0 }), run: write,
+              verify: { original: user, changes: c.payload, read: () => readUser(c.name) }, done: 'User saved',
+            });
+            if (!ok) return;
+          } else {
+            await applyVerified({
+              ...(!fresh ? { original: user, changes: c.payload } : { expect: 'exists' }),
+              read: () => readUser(c.name), write,
+            }, fresh ? 'User created' : 'User saved');
+          }
           m.close(); reload();
         } catch (e) { toastError(e); }
       }, 'primary')));

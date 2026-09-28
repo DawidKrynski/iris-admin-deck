@@ -41,6 +41,10 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
   moved since the form was opened, then reads it back afterwards and reports which fields match. Every screen
   uses it through `confirmAction({verify})` and `applyVerified()`. `findInList()` in `api.js` reads objects that
   have no get-by-name endpoint.
+- `access.js`: pure model of who holds what (users, roles including granted roles, public permissions). Before a
+  role delete, a role losing grants, a user losing roles, or a user being disabled or deleted, `impact.js` applies
+  the change to a fresh snapshot, lists the enabled users who lose access and refuses the change when no enabled
+  user would hold %All.
 - `actions.js`: the action offered next to a problem in Needs attention and the Timeline (mount a dismounted
   database, run a failed task again, open a credential, task or user, similar incidents). The recognisers are
   pure functions, tested in `tests/js`.
@@ -96,12 +100,12 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
 
 ## Tests
 
-- `tests/js`: `node --test` for the edit-check logic, incident actions and palette ranking.
+- `tests/js`: `node --test` for the edit-check logic, access impact, incident actions and palette ranking.
 - `python/tests`: pytest for parsing, grouping and embeddings.
 - `tests/AdminDeck/Tests`: `%UnitTest` for the allow-list, log queries, embeddings, vector search, OS metrics,
   application errors, hidden host details and the metrics sampler.
 - `tests/integration`: `unittest` against a running instance: the SysAdmin endpoints the UI reads, async
   tasks (202 + async-result), the write flows on throw-away objects, the extension API, auth and CORS.
 - `tests/e2e`: Playwright over every screen and tab, the palette, create/edit with read-back, the stale-edit
-  refusal, typed-confirm delete and the timeline source statuses.
+  refusal, typed-confirm delete, the timeline source statuses and the users listed before a role delete.
 - `scripts/smoke.sh`: quick end-to-end checks against a running instance.

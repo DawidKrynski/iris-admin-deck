@@ -1,6 +1,8 @@
 import { admin, buildQuery } from '../api.js';
 import { can, navigate, session } from '../app.js';
 import { h, page, table, tabs, load, modal, confirmAction, applyVerified, objectForm, diff, kv, badge, toast, toastError, apiCallPreview, button, toolbar, clear, icon, loading, errorBox } from '../ui.js';
+import { reducesRole } from '../access.js';
+import { accessCheck } from '../impact.js';
 
 const qp = (name) => `?name=${encodeURIComponent(name)}`;
 const readRole = (name) => admin.get('/v2/security/role', { name });
@@ -42,6 +44,7 @@ async function roleDetails(name, reload) {
         title: `Delete role ${name}`, message: 'This removes the role, its resource grants and its SQL privileges from every holder.',
         call: { method: 'DELETE', path: `/api/admin/v2/security/role${qp(name)}` }, danger: true, confirmLabel: 'Delete',
         confirmText: name, run: () => admin.del('/v2/security/role', { name }),
+        check: accessCheck({ kind: 'deleteRole', role: name }),
         verify: { read: () => readRole(name), expect: 'gone' }, done: 'Role deleted',
       }).then((ok) => { if (ok) { m.close(); reload(); } }) }, 'Delete') : null),
     h('h3', 'Resource grants'), table([{ key: 'Name', label: 'Resource' }, { key: 'Permissions', label: 'Permissions' }], role.Resources || [], { filter: false, empty: 'No resource grants.' }),
@@ -59,10 +62,22 @@ function roleEdit(role, reload) {
     toolbar(button('Preview API call', () => { try { const c = build(); clear(preview, apiCallPreview('PUT', `/api/admin/v2/security/role${qp(c.name)}`, c.body)); } catch (e) { toastError(e); } }, 'small')), preview],
   { wide: true, actions: [{ label: 'Cancel', onclick: () => {} }, { label: fresh ? 'Create' : 'Save changes', kind: 'primary', onclick: async () => {
     const c = build(); if (!Object.keys(c.body).length) { toast('No changes', 'warn'); return false; }
-    await applyVerified({
-      ...(!fresh ? { original: role, changes: c.body } : { expect: 'exists' }),
-      read: () => readRole(c.name), write: () => admin.put('/v2/security/role', c.body, { name: c.name }),
-    }, fresh ? 'Role created' : 'Role saved');
+    const write = () => admin.put('/v2/security/role', c.body, { name: c.name });
+    // Taking a grant away (a resource letter or a granted role) first shows who loses what; the edit stays open on cancel.
+    if (!fresh && reducesRole(role, c.body)) {
+      const ok = await confirmAction({
+        title: `Reduce access of ${c.name}`, message: 'This role will grant less than it does now. Everyone holding it, directly or through another role, is affected.',
+        call: { method: 'PUT', path: `/api/admin/v2/security/role${qp(c.name)}`, body: c.body }, danger: true, confirmLabel: 'Save changes',
+        check: accessCheck({ kind: 'updateRole', role: c.name, ...c.body }), run: write,
+        verify: { original: role, changes: c.body, read: () => readRole(c.name) }, done: 'Role saved',
+      });
+      if (!ok) return false;
+    } else {
+      await applyVerified({
+        ...(!fresh ? { original: role, changes: c.body } : { expect: 'exists' }),
+        read: () => readRole(c.name), write,
+      }, fresh ? 'Role created' : 'Role saved');
+    }
     reload();
   } }] });
 }
