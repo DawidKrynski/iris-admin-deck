@@ -12,13 +12,32 @@ copied as `curl`.
 I wrote it for the person who gets the call when something on an IRIS instance breaks: they need to see
 what went wrong, find out whether it happened before, fix it, and be sure the fix actually took.
 
-If you have two minutes:
+## For judges: two minutes
 
-- Open the online demo, <https://niutics.pl/interSystems>, and sign in as `demo` / `demo`. It is read-only:
-  every screen can be browsed, changes are refused.
-- Follow [A morning on call](#a-morning-on-call) below: six steps from the dashboard warning to the fix.
-- To try the changes too, run it locally with one command, `docker compose up -d --build`
-  ([details](#run-it)).
+- Online demo on a real IRIS 2026.2 instance: <https://niutics.pl/interSystems>. Sign in as `demo` / `demo`
+  to see every screen, or as `operator` / `operator` to see how the navigation hides what the `%Operator`
+  role may not use. Most of the demo is read-only. A small sandbox can be changed and is reset every 15
+  minutes: the database REPORTS, the Sales export task, and anything named sandbox (web applications
+  under `/sandbox/`, roles `Sandbox*`, users `sandbox_*`). That is enough to see an edit read back, a
+  stale edit refused and a role change that lists who loses access.
+- Walk through [A morning on call](#a-morning-on-call): six steps from the dashboard warning to the fix.
+- Run it yourself, with every change allowed:
+  `docker run -d -p 127.0.0.1:52785:52773 ghcr.io/dawidkrynski/iris-admin-deck`, then open
+  <http://localhost:52785/admindeck/index.html> as `SuperUser` / `SYS`. Or `docker compose up -d --build`
+  from a clone, or `zpm "install iris-admin-deck"` on an existing 2026.2 instance ([details](#run-it)).
+
+Where the contest's technology bonuses are:
+
+| Bonus | Where |
+| --- | --- |
+| Embedded Python | log parsing, recurring problems and OS metrics: [python/admindeck](python/admindeck), called from [src/AdminDeck/Logs.cls](src/AdminDeck/Logs.cls) and [src/AdminDeck/OS.cls](src/AdminDeck/OS.cls) |
+| Vector Search | similar incidents: `%Vector` column with an HNSW index in [src/AdminDeck/Data/LogLine.cls](src/AdminDeck/Data/LogLine.cls), queries in [src/AdminDeck/VectorSearch.cls](src/AdminDeck/VectorSearch.cls) |
+| Docker | [Dockerfile](Dockerfile), [docker-compose.yml](docker-compose.yml), and the prebuilt image on ghcr.io |
+| IPM | [module.xml](module.xml); `zpm "install iris-admin-deck"` |
+| Online demo | <https://niutics.pl/interSystems> |
+| Community Opportunity idea | rotated `messages.old_*` files in the log viewer: [DPI-I-966](https://ideas.intersystems.com/ideas/DPI-I-966), see [Ideas portal](#ideas-portal) |
+
+What changed in each version: [CHANGELOG.md](CHANGELOG.md). How the code is laid out: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ![Dashboard](docs/img/dashboard.png)
 
@@ -37,7 +56,7 @@ The demo data contains a small incident, so you can walk through it in the demo 
 5. Run again on the failed task line re-runs the export, which now passes.
 6. The API console lists every call you just made; Copy curl turns the mount into a line for a runbook.
 
-On the public demo steps 4 and 5 are refused (it is read-only); locally they work.
+Steps 4 and 5 also work on the public demo (REPORTS and the Sales export task are part of its sandbox).
 
 ## Run it
 
