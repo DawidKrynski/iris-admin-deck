@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2 — 2026-09-28
+
+- The extension API decodes request bodies as UTF-8. The change log stored text with typographic quotes
+  (for example a started task's name) as garbled characters.
+- The prebuilt image is published for amd64 only: IRIS starts inside the build, and two platforms built side
+  by side both claimed the same port.
+
 ## 1.0.1 — 2026-09-28
 
 New screens:
