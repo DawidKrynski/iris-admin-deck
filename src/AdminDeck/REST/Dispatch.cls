@@ -67,6 +67,8 @@ ClassMethod LogFiles() As %Status
 ClassMethod GetLog(file As %String) As %Status
 {
     quit:'##class(AdminDeck.Util).CanOperate() ..Forbidden()
+    // Malformed keys are bad input; well-formed but unavailable logs remain 404.
+    quit:'$match(file,"^[A-Za-z][A-Za-z0-9_]*$")&&'$match(file,##class(AdminDeck.Util).#ROTATEDPATTERN) ..Fail($$$ERROR($$$GeneralError, "Invalid log file key"), 400)
     set path = ##class(AdminDeck.Util).LogPath(file)
     // A missing log is an unavailable source, not an empty one
     quit:(path="")||'##class(%File).Exists(path) ..NotFound(file)

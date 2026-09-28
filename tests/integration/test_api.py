@@ -482,8 +482,8 @@ class ExtensionApi(unittest.TestCase):
         self.assertEqual(self.ext.call("POST", "/changes", body={"outcome": "verified"}).status, 400)
 
     def test_bad_input(self):
-        self.assertEqual(self.ext.call("GET", "/logs/iris.cpf").status, 404)
-        self.assertEqual(self.ext.call("GET", "/logs/messages.old_..").status, 404)
+        self.assertEqual(self.ext.call("GET", "/logs/iris.cpf").status, 400)
+        self.assertEqual(self.ext.call("GET", "/logs/messages.old_..").status, 400)
         self.assertEqual(self.ext.call("GET", "/search/similar").status, 400)
 
     def test_rest_apps_and_routes(self):
