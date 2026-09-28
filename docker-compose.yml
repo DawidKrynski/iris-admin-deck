@@ -9,3 +9,12 @@ services:
       - "127.0.0.1:52785:52773"
     volumes:
       - ./:/home/irisowner/dev
+    # The image's own check fails while IRIS reports an "alert" state. Here that state comes from the demo data
+    # (a certificate that expires soon, on purpose) and from the build host name differing from the container's,
+    # so check what matters instead: the instance runs and the portal answers.
+    healthcheck:
+      test: ["CMD-SHELL", "iris qlist IRIS | cut -d^ -f4 | grep -q '^running' && wget -q -O /dev/null http://localhost:52773/admindeck/index.html"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
