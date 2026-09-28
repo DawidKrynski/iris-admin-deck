@@ -10,6 +10,23 @@ Method TestLogPathAllowList()
     do $$$AssertEquals(##class(AdminDeck.Util).LogPath("messages.old_../../x"), "", "malformed rotated name rejected")
 }
 
+Method TestRestAppRoutes()
+{
+    set r = "AdminDeck.RestApps"
+    do $$$AssertTrue($classmethod(r, "ValidApp", "/api/mgmnt"), "web application name accepted")
+    do $$$AssertTrue('$classmethod(r, "ValidApp", "/a/../b"), "dot-dot refused")
+    do $$$AssertTrue('$classmethod(r, "ValidApp", "api"), "name without / refused")
+    do $$$AssertStatusNotOK($classmethod(r, "Describe", "/zzNoSuchApp", .out), "unknown application refused")
+    do $$$AssertStatusNotOK($classmethod(r, "Describe", "/admindeck", .out), "application without a dispatch class refused")
+    do $$$AssertStatusOK($classmethod(r, "Describe", "/admindeck/api", .out), "own REST API described")
+    set found = 0, it = out.routes.%GetIterator()
+    while it.%GetNext(, .route) { set:(route.url="/whoami")&&(route.method="GET") found = 1 }
+    do $$$AssertTrue(found, "UrlMap route GET /whoami read")
+    do $$$AssertStatusOK($classmethod(r, "Describe", "/api/mgmnt", .out), "spec-first application described")
+    do $$$AssertTrue(out.specFirst && $isobject(out.spec), "OpenAPI spec of a spec-first application")
+    do $$$AssertStatusNotOK($classmethod(r, "UrlMap", "x;kill ^y", "", [], 0), "invalid forward class refused")
+}
+
 Method TestLogQuery()
 {
     set res = {}.%FromJSON(##class(AdminDeck.Logs).Query(##class(AdminDeck.Util).LogPath("messages"), 0, "", 5))

@@ -31,6 +31,8 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
   <Route Url="/interop/:namespace/:action" Method="POST" Call="InteropAction"/>
   <Route Url="/changes" Method="POST" Call="RecordChange"/>
   <Route Url="/changes" Method="GET" Call="ListChanges"/>
+  <Route Url="/restapps" Method="GET" Call="RestApps"/>
+  <Route Url="/restapps/routes" Method="GET" Call="RestAppRoutes"/>
 </Routes>
 }
 
@@ -225,6 +227,36 @@ ClassMethod ListChanges() As %Status
     quit:'##class(AdminDeck.Util).CanReadChanges() ..Forbidden("Requires %Admin_Secure:USE or %Admin_Operate:USE")
     quit ..Reply(##class(AdminDeck.Changes).List(..Bound(%request.Get("limit", 200), 1, ##class(AdminDeck.Changes).#KEEP),
         %request.Get("user"), %request.Get("q")))
+}
+
+/// REST applications of this instance (what GET /api/mgmnt/ lists; /api/mgmnt itself refuses the JWT).
+ClassMethod RestApps() As %Status
+{
+    quit:'##class(AdminDeck.RestApps).CanRead() ..Forbidden("Requires %Admin_Operate:USE or %Development:USE")
+    set sc = $$$OK
+    try {
+        set list = ##class(AdminDeck.RestApps).List()
+    } catch ex {
+        set sc = ex.AsStatus()
+    }
+    quit:$$$ISERR(sc) ..Fail(sc)
+    quit ..Reply(list)
+}
+
+/// Routes of one REST application: ?app=/web/app/name. Reads only the dispatch class of that application
+/// (UrlMap, and the OpenAPI spec of a spec-first application); 404 for an unknown app or one without a class.
+ClassMethod RestAppRoutes() As %Status
+{
+    quit:'##class(AdminDeck.RestApps).CanRead() ..Forbidden("Requires %Admin_Operate:USE or %Development:USE")
+    set app = %request.Get("app"), out = ""
+    quit:'##class(AdminDeck.RestApps).ValidApp(app) ..Fail($$$ERROR($$$GeneralError, "Parameter app must be a web application name such as /api/mgmnt"), 400)
+    try {
+        set sc = ##class(AdminDeck.RestApps).Describe(app, .out)
+    } catch ex {
+        set sc = ex.AsStatus()
+    }
+    quit:$$$ISERR(sc) ..Fail(sc, $select(out="": 404, 1: 500))
+    quit ..Reply(out)
 }
 
 /// --- helpers ---

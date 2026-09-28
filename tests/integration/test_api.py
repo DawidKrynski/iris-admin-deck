@@ -486,6 +486,33 @@ class ExtensionApi(unittest.TestCase):
         self.assertEqual(self.ext.call("GET", "/logs/messages.old_..").status, 404)
         self.assertEqual(self.ext.call("GET", "/search/similar").status, 400)
 
+    def test_rest_apps_and_routes(self):
+        apps = {a["name"]: a for a in self.ext.get("/restapps")}
+        self.assertTrue({"/admindeck/api", "/api/admin", "/api/mgmnt"} <= set(apps))
+        self.assertEqual(apps["/admindeck/api"]["dispatchClass"], "AdminDeck.REST.Dispatch")
+        # Code-first: the UrlMap of the dispatch class.
+        own = self.ext.get("/restapps/routes", app="/admindeck/api")
+        self.assertEqual((own["namespace"], own["specFirst"], own["spec"]), ("USER", False, None))
+        self.assertIn({"method": "GET", "url": "/whoami", "call": "WhoAmI", "class": "AdminDeck.REST.Dispatch"}, own["routes"])
+        self.assertIn({"method": "GET", "url": "/restapps/routes", "call": "RestAppRoutes", "class": "AdminDeck.REST.Dispatch"}, own["routes"])
+        # UrlMap <Map Forward> is followed into the forwarded classes (with their prefix).
+        sysadmin = self.ext.get("/restapps/routes", app="/api/admin")
+        self.assertTrue(any(r["url"].startswith("/v2/") and r["class"] != "%Api.Admin" for r in sysadmin["routes"]))
+        # Spec-first (%REST.disp): the OpenAPI document, as /api/mgmnt serves it.
+        mgmnt = self.ext.get("/restapps/routes", app="/api/mgmnt")
+        self.assertTrue(mgmnt["specFirst"])
+        self.assertEqual(mgmnt["spec"]["swagger"], "2.0")
+        self.assertTrue(mgmnt["spec"]["paths"])
+
+    def test_rest_routes_bad_input(self):
+        for app in ["", "admindeck", "/a/../b", "/x;kill"]:
+            with self.subTest(app=app):
+                self.assertEqual(self.ext.call("GET", "/restapps/routes", {"app": app}).status, 400)
+        # Only the dispatch class of an existing REST application is read.
+        for app in ["/zzNoSuchApp", "/csp/user", "/admindeck"]:
+            with self.subTest(app=app):
+                self.assertEqual(self.ext.call("GET", "/restapps/routes", {"app": app}).status, 404)
+
 
 class Security(unittest.TestCase):
     def test_unauthenticated_requests_are_refused(self):
@@ -522,8 +549,30 @@ class Security(unittest.TestCase):
             self.assertEqual(recorded["user"], name)
             self.assertEqual(dev.call("GET", "/changes").status, 403)
             self.assertIn(recorded["id"], [row["id"] for row in Client("/admindeck/api").get("/changes", user=name)])
+            # The REST application explorer is open to developers (%Development:USE, like /api/mgmnt).
+            self.assertEqual(dev.call("GET", "/restapps").status, 200)
+            self.assertEqual(dev.call("GET", "/restapps/routes", {"app": "/admindeck/api"}).status, 200)
         finally:
             api.call("DELETE", "/v2/security/user", {"name": name})
+
+    def test_rest_apps_require_operate_or_development(self):
+        api = Client("/api/admin")
+        name = f"{PREFIX}Sql"
+        api.ok("POST", "/v2/security/user", {"name": name}, {"User": {"Roles": ["%SQL"], "Enabled": True, "ChangePassword": False}, "Password": "zzT3st!pass"})
+        try:
+            user = Client("/admindeck/api", name, "zzT3st!pass")
+            self.assertTrue(user.token, "user can sign in")
+            self.assertEqual(user.call("GET", "/restapps").status, 403)
+            self.assertEqual(user.call("GET", "/restapps/routes", {"app": "/admindeck/api"}).status, 403)
+        finally:
+            api.call("DELETE", "/v2/security/user", {"name": name})
+
+    def test_portal_token_is_accepted_by_jwt_apps_only(self):
+        # Try it in the explorer sends the /api/admin token: other JWT applications take it, /api/mgmnt does not.
+        token = Client("/api/admin").token
+        headers = {"Authorization": f"Bearer {token}"}
+        self.assertEqual(raw("GET", "/admindeck/api/whoami", headers=headers).status, 200)
+        self.assertEqual(raw("GET", "/api/mgmnt/", headers=headers).status, 401)
 
     def test_production_actions_require_ens_production_run(self):
         # %Operator may read production status (%Admin_Operate) but not start or stop one (%Ens_ProductionRun).

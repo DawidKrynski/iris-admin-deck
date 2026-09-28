@@ -26,7 +26,8 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
                                   ├── /os           CPU, memory, disks
                                   ├── /metrics      last hour of 5 s samples (AdminDeck.Metrics)
                                   ├── /search       similar-incident search (IRIS Vector Search)
-                                  └── /changes      log of changes made through Admin Deck (AdminDeck.Changes)
+                                  ├── /changes      log of changes made through Admin Deck (AdminDeck.Changes)
+                                  └── /restapps     REST applications of the instance and their routes
 ```
 
 ### Frontend (`web/js`)
@@ -49,6 +50,10 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
 - `actions.js`: the action offered next to a problem in Needs attention and the Timeline (mount a dismounted
   database, run a failed task again, open a credential, task or user, similar incidents). The recognisers are
   pure functions, tested in `tests/js`.
+- `restapps.js`: pure helpers of the explorer tab "REST APIs on this instance": the merged application list,
+  routes from an OpenAPI 2.0/3.x spec or a UrlMap, path filling, the response as text. `rawCall()` in `api.js`
+  sends Try it requests with the portal's JWT (accepted by every application with JWT authentication, refused by
+  password-only ones such as `/api/mgmnt`) and never signs out on the tried application's 401.
 - `palette.js`: the Ctrl+K palette over screens, shell actions and objects (users, roles, web apps, tasks).
 - `app.js`: login, grouped navigation filtered by the privileges from `/api/admin/info`, the hash router (each
   route renders into its own node; open dialogs close on navigation), the API console.
@@ -64,6 +69,11 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
 - `AdminDeck.Changes`: the change log in `^AdminDeck("Changes")`, journaled, newest 5000 entries. The UI records
   each confirmed change after it ran (`applyVerified()` / `confirmAction()` in `ui.js`, fire-and-forget): what,
   method and path of each call (no bodies), and the read-back outcome, including refused and failed ones.
+- `AdminDeck.REST.Dispatch`: routes. Every endpoint requires `%Admin_Operate:USE`, except `/restapps`, which
+  also accepts `%Development:USE` (the audience of `/api/mgmnt`).
+- `AdminDeck.RestApps`: the list of `/api/mgmnt` (`%REST.API`, in-process, because `/api/mgmnt` takes only
+  basic auth), and for one listed application the OpenAPI spec (spec-first, `%REST.disp`) and the UrlMap routes
+  of its dispatch class, following `<Map Forward>`. Only dispatch classes of listed applications are read.
 - `AdminDeck.Util`: allow-list of log files in the manager directory plus rotated `messages.old_*` /
   `alerts.old_*` files, checked by pattern and existence. Nothing else can be opened.
 - `AdminDeck.AppErrors`: application errors of every namespace via `SYS.ApplicationError`, limited to the newest
@@ -105,7 +115,8 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
 
 ## Tests
 
-- `tests/js`: `node --test` for the edit-check logic, access impact, incident actions and palette ranking.
+- `tests/js`: `node --test` for the edit-check logic, access impact, incident actions, palette ranking and the REST
+  route helpers.
 - `python/tests`: pytest for parsing, grouping and embeddings.
 - `tests/AdminDeck/Tests`: `%UnitTest` for the allow-list, log queries, embeddings, vector search, OS metrics,
   application errors, hidden host details and the metrics sampler.

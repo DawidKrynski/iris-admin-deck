@@ -129,7 +129,7 @@ Then open `http://<host>:<port>/admindeck/index.html`. The package creates two w
 | Language servers | External language servers (Python, Java, .NET gateways): state, start/stop, settings, create, delete, recent activity |
 | Logs & insights | Timeline, log viewer (current and rotated files), recurring problems, similar incidents |
 | Audit trail | Search audit records, turn individual audit events on or off, turn auditing on if it's off. Maintenance: IRISAUDIT size and date range, copy records to a namespace, purge records older than N days (never the newest ones; you type the number of records first). Changes made here: every change made through Admin Deck, who made it, the calls and whether the read-back matched |
-| API explorer | All 190 paths (273 operations) from the 2026.2 OpenAPI spec, with an example body and a preview before sending |
+| API explorer | All 190 paths (273 operations) from the 2026.2 OpenAPI spec, with an example body and a preview before sending. REST APIs on this instance: every web application with a dispatch class, its routes from the OpenAPI spec or the UrlMap, a Try it form (other methods than GET after a confirmation) and Copy curl |
 
 Ctrl+K opens a palette that finds screens, users, roles, web applications and tasks by name.
 

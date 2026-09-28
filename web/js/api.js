@@ -244,10 +244,50 @@ export async function logout() {
   await Promise.all([admin.logout(), ext.logout()]);
 }
 
-/** Equivalent curl command for an API call (shown in confirmations and the API console). */
-export function curl(method, url, body) {
+/** Seconds until a JWT expires (from its exp claim), or null when it cannot be read. */
+export function jwtExpiresIn(token, now = Date.now()) {
+  try {
+    const part = String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const exp = JSON.parse(atob(part + '='.repeat((4 - (part.length % 4)) % 4))).exp;
+    return typeof exp === 'number' ? exp - now / 1000 : null;
+  } catch { return null; }
+}
+
+/**
+ * One request to any web application of this instance (the explorer's "Try it"). With `auth`, the portal's
+ * SysAdmin token goes as the Bearer: IRIS accepts it on every application with JWT authentication enabled,
+ * but /api/mgmnt, /api/atelier and other password-only applications answer 401. It is refreshed first when
+ * about to expire; a 401 here is the tried application's answer, so it never retries or signs out.
+ * Resolves with {status, statusText, headers: [[name, value]], body (text), ms}.
+ */
+export async function rawCall(method, path, { body, auth = true } = {}) {
+  if (auth && admin.loggedIn && (jwtExpiresIn(admin.tokens.access_token) ?? 60) < 5) await admin.refresh().catch(() => {});
+  const url = `${PREFIX}${path}`;
+  const started = performance.now();
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Accept: 'application/json, text/plain;q=0.9, */*;q=0.8',
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(auth && admin.loggedIn ? { Authorization: `Bearer ${admin.tokens.access_token}` } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    credentials: 'omit', // never a CSP session cookie: only what the curl command would send
+    redirect: 'manual',
+  });
+  const text = method === 'HEAD' ? '' : await res.text();
+  const ms = Math.round(performance.now() - started);
+  emit({ method, url, body, status: res.status, ms });
+  return { status: res.status, statusText: res.statusText, headers: [...res.headers.entries()], body: text, ms };
+}
+
+/**
+ * Equivalent curl command for an API call (shown in confirmations and the API console).
+ * `basic`: the application does not take a JWT, so curl signs in with user and password (-u prompts for it).
+ */
+export function curl(method, url, body, { basic = false } = {}) {
   const full = url.startsWith('http') ? url : `${location.origin}${url.startsWith(PREFIX + '/') ? '' : PREFIX}${url}`;
-  let cmd = `curl -X ${method} -H "Authorization: Bearer $TOKEN"`;
+  let cmd = `curl -X ${method} ${basic ? '-u "$IRIS_USER"' : '-H "Authorization: Bearer $TOKEN"'}`;
   if (body !== undefined) cmd += ` -H "Content-Type: application/json" -d '${JSON.stringify(redact(body)).replace(/'/g, "'\\''")}'`;
   return `${cmd} '${full}'`;
 }

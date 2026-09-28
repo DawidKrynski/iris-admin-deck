@@ -248,6 +248,21 @@ def run_ui_checks(page):
         api("DELETE", f"/v2/security/user?name={user}")
         api("DELETE", f"/v2/security/role?name={role}")
 
+    # 9. API explorer, REST APIs on this instance: the extension's routes, and GET /whoami tried with the portal token.
+    page.goto(f"{UI}#/explorer")
+    settled(page)
+    page.click(".tab:has-text('REST APIs on this instance')")
+    settled(page)
+    page.click("button.rest-app:has(strong:text-is('/admindeck/api'))")
+    page.wait_for_selector("main h3:has-text('Routes (')")
+    page.click("button.route:has-text('/whoami')")
+    page.click("main button:has-text('Send')")
+    page.wait_for_selector("main pre.response")
+    response = page.locator("main pre.response").inner_text()
+    assert response.startswith("HTTP 200"), response[:300]
+    assert '"username": "SuperUser"' in response, response[:500]
+    print("ok   REST APIs on this instance: routes of /admindeck/api, GET /whoami 200")
+
 
 if __name__ == "__main__":
     main()

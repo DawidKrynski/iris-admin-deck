@@ -2,7 +2,7 @@
 // descriptions etc. coming from the server cannot inject markup.
 import { curl, redact, ext, onCall, PREFIX } from './api.js';
 import { verifiedChange, describeVerification } from './verify.js';
-import { changeCall, changeRecord, outcomeOf } from './changes.js';
+import { changeCall, outcomeOf, openChange, closeChange } from './changes.js';
 
 /** h('div.card#main', {onclick, title, dataset:{}}, child1, 'text', [children]) */
 export function h(tag, attrs, ...children) {
@@ -128,9 +128,9 @@ export function modal(title, body, { actions = [], wide = false, onClose } = {})
   return { close, el: overlay };
 }
 
-/** Panel describing the exact API call an action will make, with copy-as-curl. */
-export function apiCallPreview(method, path, body) {
-  const cmd = curl(method, path, body);
+/** Panel describing the exact API call an action will make, with copy-as-curl (`opts` as for curl()). */
+export function apiCallPreview(method, path, body, opts) {
+  const cmd = curl(method, path, body, opts);
   return h('details.api-preview',
     h('summary', h('code', `${method} ${path}`)),
     body !== undefined ? h('pre', JSON.stringify(redact(body), null, 2)) : null,
@@ -145,41 +145,41 @@ export function copy(text) {
 // Each confirmed change is recorded in the server's change log (changes.js) once it has run: the calls
 // it made (method and path, taken from the API console feed) and its outcome. Sending is fire-and-forget:
 // a log that cannot be written never delays or fails the change itself.
-let recordedChanges = 0;
-function sendChange(what, calls, outcome) {
-  recordedChanges++;
-  if (!ext.loggedIn) return;
+function sendChange(record) {
+  if (!record || !ext.loggedIn) return;
   try {
-    ext.request('POST', '/changes', { body: changeRecord(what, calls, outcome), quiet: true }).catch(() => {});
+    ext.request('POST', '/changes', { body: record, quiet: true }).catch(() => {});
   } catch { /* never let the log break a change */ }
 }
 
-/** Runs `fn()`, then records what it changed. `always`: also when it made no write call (a refused edit). */
-async function recorded(what, fn, outcome, { always = true } = {}) {
-  const calls = [];
-  const before = recordedChanges;
-  const stop = onCall((entry) => { const c = changeCall(entry, PREFIX); if (c) calls.push(c); });
+/**
+ * Runs `fn(op)`, then records what it changed. `op` is this operation (changes.js openChange): a change run
+ * inside `fn` gets it as `parent`, records itself and this one is not recorded again. `always`: also when it
+ * made no write call. A refused stale edit wrote nothing but is recorded.
+ */
+async function recorded(what, fn, outcome, { always = true, parent = null } = {}) {
+  const op = openChange(parent);
+  const stop = onCall((entry) => { const c = changeCall(entry, PREFIX); if (c) op.calls.push(c); });
   let result;
   try {
-    result = await fn();
+    result = await fn(op);
   } catch (e) {
     stop();
-    // A nested applyVerified() has already recorded its own outcome. A refused stale edit wrote nothing but is recorded.
-    const failed = outcomeOf(null, e);
-    if (recordedChanges === before && (always || calls.length || failed.outcome === 'refused')) sendChange(what, calls, failed);
+    sendChange(closeChange(op, what, outcomeOf(null, e), { always }));
     throw e;
   }
   stop();
-  if (recordedChanges === before && (always || calls.length)) sendChange(what, calls, outcome(result));
+  sendChange(closeChange(op, what, outcome(result), { always }));
   return result;
 }
 
 /**
  * Runs a change as a verified change (see verify.js), reports the outcome as a toast and records it
- * in the change log. `what` names the change in the message ("Task suspended").
+ * in the change log. `what` names the change in the message ("Task suspended"); `parent`: the operation
+ * it runs in, if any (see recorded()).
  */
-export async function applyVerified(options, what) {
-  const outcome = await recorded(what, () => verifiedChange(options), (r) => outcomeOf(r));
+export async function applyVerified(options, what, parent = null) {
+  const outcome = await recorded(what, () => verifiedChange(options), (r) => outcomeOf(r), { parent });
   const [message, kind] = describeVerification(outcome, what);
   toast(message, kind);
   return outcome;
@@ -187,23 +187,28 @@ export async function applyVerified(options, what) {
 
 /**
  * Confirmation for a mutating call. Shows what will be called; runs `run()` on confirm.
- * call:    {method, path, body}, or an array of them when the action makes several calls
+ * call:    {method, path, body, basic?}, or an array of them when the action makes several calls
  * verify:  {read, original?, changes?, expect?} — makes it a verified change (verify.js)
  * confirmText: when set, the user must type this text (e.g. the object's name) to confirm.
  * check:   async () => {body, refuse} run when the dialog opens (who loses what, see impact.js); the confirm
  *          button stays disabled until it answers, and for good when `refuse` is set or the check fails.
+ *          It runs again on confirm: what changed meanwhile (another administrator disabled) can refuse it.
+ * what:    change log title (default done or title); must not carry request values such as a token.
+ * outcome: (result of run) => {outcome, details} for the log of an unverified change (default unverified).
  */
-export function confirmAction({ title, message, call, danger = false, confirmLabel = 'Confirm', run, done, verify, confirmText, check }) {
+export function confirmAction({ title, message, call, danger = false, confirmLabel = 'Confirm', run, done, verify, confirmText, check, what, outcome }) {
   return new Promise((resolve) => {
     const typed = confirmText ? h('input', { type: 'text', autocomplete: 'off', 'aria-label': `Type ${confirmText} to confirm` }) : null;
     const checked = check ? h('div.access-check', loading('Checking who is affected…')) : null;
     let busy = false; let blocked = !!check;
     const matches = () => !typed || typed.value === confirmText;
+    const showCheck = ({ body, refuse }) => clear(checked, body, refuse ? h('div.error-box.refusal', h('strong', refuse)) : null);
+    const showCheckError = (e) => clear(checked, h('div.error-box.refusal', h('strong', 'Could not work out who is affected, so this change is blocked: '), e.message));
     const m = modal(title, [
       h('p', message),
       checked,
       typed ? h('div.field.confirm-type', h('label', 'Type ', h('code', confirmText), ' to confirm'), typed) : null,
-      call ? [call].flat().map((c) => apiCallPreview(c.method, c.path, c.body)) : null,
+      call ? [call].flat().map((c) => apiCallPreview(c.method, c.path, c.body, { basic: c.basic })) : null,
     ], {
       onClose: () => resolve(false),
       actions: [
@@ -216,11 +221,18 @@ export function confirmAction({ title, message, call, danger = false, confirmLab
             if (blocked || !matches()) return false;
             busy = true;
             try {
+              // The snapshot of the first check may be stale by now: checked again right before the write.
+              if (check) {
+                let again;
+                try { again = await check(); } catch (e) { blocked = true; showCheckError(e); return false; }
+                if (again.refuse) { blocked = true; showCheck(again); return false; }
+              }
+              const logTitle = what || done || title;
               let r;
-              if (verify) r = (await applyVerified({ ...verify, write: run }, done || title)).result;
+              if (verify) r = (await applyVerified({ ...verify, write: run }, logTitle)).result;
               else {
-                // Recorded as unverified, and only when it wrote something (the API explorer also sends reads here).
-                r = await recorded(done || title, run, () => ({ outcome: 'unverified' }), { always: false });
+                // Recorded (unverified unless `outcome` says otherwise) only when it wrote something: the API explorer also sends reads here.
+                r = await recorded(logTitle, run, outcome || (() => ({ outcome: 'unverified' })), { always: false });
                 if (done) toast(done);
               }
               resolve(r === undefined ? true : r);
@@ -238,11 +250,7 @@ export function confirmAction({ title, message, call, danger = false, confirmLab
       typed.focus();
     }
     if (check) {
-      check().then(({ body, refuse }) => {
-        blocked = !!refuse;
-        clear(checked, body, refuse ? h('div.error-box.refusal', h('strong', refuse)) : null);
-      }, (e) => clear(checked, h('div.error-box.refusal', h('strong', 'Could not work out who is affected, so this change is blocked: '), e.message)))
-        .finally(sync);
+      check().then((r) => { blocked = !!r.refuse; showCheck(r); }, showCheckError).finally(sync);
     }
   });
 }
