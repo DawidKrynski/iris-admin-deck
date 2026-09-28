@@ -192,8 +192,10 @@ daily at 03:15. Other or rotated files can be indexed from Similar incidents wit
 - Similar incidents matches wording, not meaning.
 - Very large logs: only the last 8 MB of a file is parsed.
 - OS metrics are Linux-only (`/proc`, `statvfs`).
-- Some detail views (a web application, the license) still show raw API field names and codes, e.g.
-  `AutheEnabled 32` instead of "Password".
+- Some fields are still shown as IRIS returns them, e.g. a process's `JobType` number, which the API doesn't
+  name.
+- Free space per database comes from `/api/monitor/metrics`. Behind a proxy that only forwards `/api/admin`
+  and `/admindeck`, that column stays empty.
 - The Docker image is a local development instance with the well-known `SuperUser`/`SYS` login bound to
   localhost. The public demo is a separate, read-only deployment.
 
@@ -233,7 +235,8 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | ![Tasks](docs/img/tasks.png) Tasks | ![API console](docs/img/api-console.png) API console |
 | ![Access matrix](docs/img/access-matrix.png) Access matrix | ![X.509](docs/img/secrets-x509.png) X.509 credentials with expiry |
 | ![Web apps](docs/img/webapps.png) Web apps & REST | ![API explorer](docs/img/explorer.png) API explorer |
-| ![Databases](docs/img/databases.png) Databases | |
+| ![Databases](docs/img/databases.png) Databases | ![Journal](docs/img/journal.png) Journal records |
+| ![Interoperability](docs/img/interop.png) Interoperability productions | |
 
 ## Development
 
