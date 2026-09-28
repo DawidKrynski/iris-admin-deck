@@ -20,7 +20,8 @@ what went wrong, find out whether it happened before, fix it, and be sure the fi
   minutes: the database REPORTS, the Sales export task, and anything named sandbox (web applications
   under `/sandbox/`, roles `Sandbox*`, users `sandbox_*`). That is enough to see an edit read back, a
   stale edit refused and a role change that lists who loses access.
-- Walk through A morning on call, the next section: six steps from the dashboard warning to the fix.
+- Walk through A morning on call, the next section: six steps from the dashboard warning to the fix. The same
+  story as a 3-minute video: <https://youtu.be/gUsxZi-uAD4>.
 - Run it yourself, with every change allowed:
   `docker run -d -p 127.0.0.1:52785:52773 ghcr.io/dawidkrynski/iris-admin-deck`, then open
   <http://localhost:52785/admindeck/index.html> as `SuperUser` / `SYS`. Or `docker compose up -d --build`
@@ -35,6 +36,8 @@ Where the contest's technology bonuses are:
 | Docker | [Dockerfile](Dockerfile), [docker-compose.yml](docker-compose.yml), and the prebuilt image on ghcr.io |
 | IPM | [module.xml](module.xml); `zpm "install iris-admin-deck"` |
 | Online demo | <https://niutics.pl/interSystems> |
+| Video | <https://youtu.be/gUsxZi-uAD4> |
+| Article | [on the Developer Community](https://community.intersystems.com/post/iris-admin-deck-every-click-documented-api-call-%E2%80%94-and-every-change-proven) |
 | Community Opportunity idea | rotated `messages.old_*` files in the log viewer: [DPI-I-966](https://ideas.intersystems.com/ideas/DPI-I-966), see Ideas portal below |
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md). How the code is laid out: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

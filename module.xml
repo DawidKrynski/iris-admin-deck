@@ -3,7 +3,7 @@
   <Document name="iris-admin-deck.ZPM">
     <Module>
       <Name>iris-admin-deck</Name>
-      <Version>1.0.3</Version>
+      <Version>1.0.4</Version>
       <Description>Modern single-page management portal for InterSystems IRIS built on the SysAdmin REST API (/api/admin/v2): web apps, permissions, secrets, tasks, OS and logs, with Embedded Python log/OS insights and vector search over logs.</Description>
       <Keywords>management portal sysadmin api admin gui embedded python vector search</Keywords>
       <Author>

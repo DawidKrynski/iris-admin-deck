@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4 — 2026-09-28
+
+- README: links to the video (https://youtu.be/gUsxZi-uAD4) and to the Developer Community article.
+
 ## 1.0.3 — 2026-09-28
 
 - README: no in-page links. Open Exchange renders headings without anchors, so links such as "A morning on
