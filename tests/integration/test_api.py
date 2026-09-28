@@ -80,7 +80,8 @@ class Client:
 
 def raw(method, path, query=None, body=None, headers=None):
     url = BASE + path + ("?" + urllib.parse.urlencode(query) if query else "")
-    data = json.dumps(body).encode() if body is not None else None
+    # Raw UTF-8, as a browser sends it (not \u escapes), so non-ASCII text is tested for real
+    data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers={
         "Accept": "application/json", **({"Content-Type": "application/json"} if data else {}), **(headers or {})})
     try:
@@ -466,7 +467,7 @@ class ExtensionApi(unittest.TestCase):
         self.assertEqual(self.ext.call("POST", f"/interop/{ns}/stop", body={}).status, 400)
 
     def test_change_log(self):
-        what = f"Web application /{PREFIX.lower()} saved"
+        what = f"Web application “/{PREFIX.lower()}” saved"  # non-ASCII on purpose: the body is UTF-8
         r = self.ext.ok("POST", "/changes", body={
             "what": what, "outcome": "not-reflected", "details": "Description", "user": "someone-else",
             "calls": [{"method": "PUT", "path": f"/api/admin/v2/web-app?name=%2F{PREFIX.lower()}&token=abc", "body": {"Password": "x"}}]})

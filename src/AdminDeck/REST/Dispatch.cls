@@ -195,7 +195,7 @@ ClassMethod InteropAction(namespace As %String, action As %String) As %Status
     quit:$$$ISERR(sc) ..Fail(sc, 404)
     set production = ""
     try {
-        set body = $select($isobject(%request.Content) && %request.Content.Size: {}.%FromJSON(%request.Content), 1: {})
+        set body = ..JsonBody({})
         set production = body.%Get("production")
     } catch ex {
         set sc = $$$ERROR($$$GeneralError, "Request body must be JSON")
@@ -209,11 +209,20 @@ ClassMethod InteropAction(namespace As %String, action As %String) As %Status
 
 /// Records a change the caller made through Admin Deck: {what, calls: [{method, path}], outcome, details}.
 /// Any signed-in user may record their own changes; the username is always $username, never from the body.
+/// The request body as JSON, or `empty` when there is none. The body arrives as UTF-8 bytes: decoded first,
+/// so text such as “quoted” names is stored as sent, not as mojibake.
+ClassMethod JsonBody(empty = "")
+{
+    quit:'$isobject(%request.Content)||'%request.Content.Size empty
+    do %request.Content.Rewind()
+    quit {}.%FromJSON($zconvert(%request.Content.Read(%request.Content.Size), "I", "UTF8"))
+}
+
 ClassMethod RecordChange() As %Status
 {
     set sc = $$$OK
     try {
-        set body = $select($isobject(%request.Content) && %request.Content.Size: {}.%FromJSON(%request.Content), 1: "")
+        set body = ..JsonBody("")
     } catch ex {
         set sc = $$$ERROR($$$GeneralError, "Request body must be JSON")
     }
