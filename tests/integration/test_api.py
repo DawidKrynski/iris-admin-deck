@@ -386,6 +386,7 @@ class ExtensionApi(unittest.TestCase):
     def test_whoami_and_os(self):
         me = self.ext.get("/whoami")
         self.assertEqual(me["canOperate"], 1)
+        self.assertRegex(me["serverTime"], r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
         os_ = self.ext.get("/os")
         self.assertGreater(os_["cpu"]["cores"], 0)
         self.assertGreater(os_["memory"]["total"], 0)

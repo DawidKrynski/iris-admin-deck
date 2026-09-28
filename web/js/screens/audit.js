@@ -1,6 +1,7 @@
-import { admin, waitAsync } from '../api.js';
+import { admin, ext, waitAsync } from '../api.js';
 import { can } from '../app.js';
-import { h, page, table, tabs, load, modal, confirmAction, kv, badge, button, toolbar, clear, errorBox } from '../ui.js';
+import { h, page, table, tabs, load, modal, confirmAction, kv, badge, button, toolbar, clear, errorBox, toast, toastError } from '../ui.js';
+import { purgeCutoff, checkPurge, countLabel, auditRows } from '../retention.js';
 
 const queryPath = (path, query) => `/api/admin${path}?${new URLSearchParams(query)}`;
 const isAsync = (r) => !!r && !Array.isArray(r) && !!(r.GUID || r.Id || r.id);
@@ -11,7 +12,8 @@ export default async function render(el, params) {
   const status = h('div.toolbar');
   el.append(page('Audit trail', 'Search security events and see what is recorded.', status,
     tabs([{ id: 'records', label: 'Records', render: recordsTab },
-      { id: 'events', label: 'Events', render: eventsTab }], params[0])));
+      { id: 'events', label: 'Events', render: eventsTab },
+      can('Secure') ? { id: 'maintenance', label: 'Maintenance', render: maintenanceTab } : null].filter(Boolean), params[0])));
   statusPanel(status);
 }
 
@@ -30,6 +32,15 @@ async function statusPanel(box) {
   } catch (e) { clear(box, errorBox(e, () => statusPanel(box))); }
 }
 
+async function queryRecords(query) {
+  const result = await admin.post('/v2/security/audit/records', {}, query);
+  if (!isAsync(result)) return result;
+  // The query runs as a background task that usually finishes in well under a second: poll quickly.
+  return waitAsync(result.GUID || result.Id || result.id, { interval: 300, timeoutMs: 3 * 60 * 1000 });
+}
+const recordRows = (result) => (Array.isArray(result) ? result : Array.isArray(result?.Result) ? result.Result :
+  Array.isArray(result?.Result?.Records) ? result.Result.Records : []);
+
 function recordsTab(body) {
   // Empty range = from the first to the last record (newest first, max 500). Dates are server time,
   // which is usually not the browser's time zone, so no browser-clock defaults.
@@ -44,14 +55,8 @@ function recordsTab(body) {
     const query = Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.value.trim()]).filter(([, value]) => value));
     query.maxRows = 500;
     query.ascending = 0;
-    await load(resultBox, async () => {
-      const result = await admin.post('/v2/security/audit/records', {}, query);
-      if (!isAsync(result)) return result;
-      // The query runs as a background task that usually finishes in well under a second: poll quickly.
-      return waitAsync(result.GUID || result.Id || result.id, { interval: 300, timeoutMs: 3 * 60 * 1000 });
-    }, (result) => {
-      const rows = Array.isArray(result) ? result : Array.isArray(result?.Result) ? result.Result :
-        Array.isArray(result?.Result?.Records) ? result.Result.Records : [];
+    await load(resultBox, () => queryRecords(query), (result) => {
+      const rows = recordRows(result);
       return [isAsync(result) && !/finish|complete/i.test(String(result.State)) ? h('div.card', h('strong', `Task ${result.GUID || result.Id || result.id}: ${result.State}`),
         result.FailureReason ? h('p', result.FailureReason) : null) : null,
       table([
@@ -65,6 +70,99 @@ function recordsTab(body) {
   body.append(h('div.card', h('div.form-grid', fields.map(([key, label]) => h('div.field', h('label', label), inputs[key]))),
     toolbar(button('Search records', search, 'primary'))), resultBox);
   search();
+}
+
+// ---------- maintenance: size, copy to a namespace, purge old records ----------
+// Counting reads the matching records (the API has no count call), capped so a huge trail stays cheap.
+// auditRows() throws for a failed, cancelled or malformed query: a count is never a guess.
+const COUNT_CAP = 10000;
+const countRecords = async (range) => auditRows(await queryRecords({ ...range, maxRows: COUNT_CAP, ascending: 1 })).length;
+const edgeRecord = async (ascending) => auditRows(await queryRecords({ maxRows: 1, ascending }))[0] || null;
+const localTime = (r) => r && (r.TimeStamp || r.UTCTimeStamp || '');
+
+function maintenanceTab(body) {
+  const summary = h('div');
+  const reload = () => load(summary, async () => {
+    const [dbs, dirs, oldest, last] = await Promise.all([admin.get('/v2/databases'), admin.get('/v2/database-dirs'),
+      edgeRecord(1), edgeRecord(0)]);
+    const db = (dbs || []).find((d) => d.Name === 'IRISAUDIT');
+    const dir = db && (dirs || []).find((d) => d.Directory === db.Directory);
+    return { db, dir, oldest, last };
+  }, ({ db, dir, oldest, last }) => {
+    const newest = localTime(last);
+    return h('div.card', h('h2', 'Audit database'), kv({
+      Database: db ? `IRISAUDIT (${db.Directory})` : 'IRISAUDIT',
+      Size: dir?.Size !== undefined ? `${dir.Size} MB` : 'not available',
+      'Oldest record': localTime(oldest) || '—', 'Newest record': newest || '—',
+    }), toolbar(button('Refresh', reload, 'small')));
+  });
+  body.append(h('div.grid.wide', summary, copyCard(), purgeCard(reload)));
+  reload();
+}
+
+function copyCard() {
+  const ns = h('select', { 'aria-label': 'Target namespace' });
+  const from = h('input', { placeholder: 'YYYY-MM-DD HH:MM:SS, empty = first record', 'aria-label': 'From (server time)' });
+  const to = h('input', { placeholder: 'empty = last record', 'aria-label': 'To (server time)' });
+  admin.get('/v2/namespaces').then((rows) => clear(ns, (rows || []).map((r) => r.Name || r).filter((n) => !String(n).startsWith('%'))
+    .map((n) => h('option', { value: n, selected: n === 'USER' }, n))), toastError);
+  const run = async () => {
+    const body = { AuditCopyNamespace: ns.value, DeleteAfterCopy: false, BeginDateTime: from.value.trim(), EndDateTime: to.value.trim() };
+    if (!body.AuditCopyNamespace) throw new Error('Choose a target namespace.');
+    const range = { beginDateTime: body.BeginDateTime, endDateTime: body.EndDateTime };
+    const count = await countRecords(range);
+    if (!count) return toast('No audit records in this range.', 'warn');
+    return confirmAction({ title: `Copy audit records to ${body.AuditCopyNamespace}`,
+      message: `${countLabel(count, COUNT_CAP)} records will be copied. The audit trail itself is not changed.`,
+      call: { method: 'POST', path: '/api/admin/v2/security/audit/record/copy', body }, confirmLabel: 'Copy',
+      run: async () => {
+        await finish(await admin.post('/v2/security/audit/record/copy', body));
+        // The copy is not readable through the API; confirm at least that the source kept its records.
+        const kept = await countRecords(range);
+        toast(kept >= count ? `Copy finished — ${countLabel(kept, COUNT_CAP)} records still in the audit trail` :
+          `Copy finished, but only ${kept} records remain in the range`, kept >= count ? 'ok' : 'warn');
+      } });
+  };
+  return h('div.card', h('h2', 'Copy records to a namespace'),
+    h('p.muted.small', 'Export audit records into another namespace (for example before purging). Leave the dates empty for the whole trail.'),
+    h('div.form-grid', h('div.field', h('label', 'Target namespace'), ns),
+      h('div.field', h('label', 'From (server time)'), from), h('div.field', h('label', 'To (server time)'), to)),
+    toolbar(button('Copy…', () => run().catch(toastError))));
+}
+
+function purgeCard(reload) {
+  const days = h('input', { type: 'number', min: 1, step: 1, value: 365, 'aria-label': 'Older than (days)' });
+  const run = async () => {
+    // Read fresh, right before confirming: the server's own clock (records are stamped in server time,
+    // never the browser's; /whoami needs no %Admin_Operate) and the newest record, which must lie after
+    // the cutoff. Either read failing stops the purge.
+    const [me, last] = await Promise.all([ext.get('/whoami'), edgeRecord(0)]);
+    const cutoff = purgeCutoff(days.value, me && me.serverTime);
+    const body = checkPurge(cutoff, localTime(last));
+    const range = { beginDateTime: '', endDateTime: cutoff };
+    const count = await countRecords(range);
+    if (!count) return toast(`No audit records before ${cutoff}.`, 'warn');
+    const ok = await confirmAction({ title: 'Purge old audit records', danger: true, confirmLabel: 'Purge',
+      message: `${countLabel(count, COUNT_CAP)} audit records older than ${cutoff} will be permanently deleted. Copy them to a namespace first if you need to keep them.`,
+      confirmText: String(count), call: { method: 'POST', path: '/api/admin/v2/security/audit/record/purge', body },
+      run: async () => {
+        await finish(await admin.post('/v2/security/audit/record/purge', body));
+        const left = await countRecords(range);
+        toast(left ? `Purge accepted, but ${left} records before ${cutoff} remain` : 'Records purged — verified: none left before the cutoff', left ? 'warn' : 'ok');
+      } });
+    if (ok) reload();
+  };
+  return h('div.card', h('h2', 'Purge old records'),
+    h('p.muted.small', 'Deletes records older than the given number of days. The newest records are never touched; you type the number of records to confirm.'),
+    h('div.form-grid', h('div.field', h('label', 'Older than (days)'), days)),
+    toolbar(button('Purge…', () => run().catch(toastError), 'danger')));
+}
+
+/** Waits for a queued copy/purge and fails when the background task did. */
+async function finish(result) {
+  const task = isAsync(result) ? await waitAsync(result.GUID || result.Id || result.id, { interval: 500 }) : result;
+  if (task && /fail|error|cancel/i.test(String(task.State || ''))) throw new Error(task.FailureReason || `Background task ${task.State}`);
+  return task;
 }
 
 async function recordDetails(row) {

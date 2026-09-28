@@ -37,8 +37,9 @@ ClassMethod OnPreDispatch(pUrl As %String, pMethod As %String, ByRef pContinue A
 
 ClassMethod WhoAmI() As %Status
 {
+    // serverTime: the instance's local clock, for screens that must not trust the browser's (audit purge)
     quit ..Reply({"username": ($username), "roles": ($roles), "canOperate": (##class(AdminDeck.Util).CanOperate()),
-        "version": ($zversion), "embeddedPython": (..PythonVersion())})
+        "version": ($zversion), "embeddedPython": (..PythonVersion()), "serverTime": ($zdatetime($horolog, 3))})
 }
 
 ClassMethod PythonVersion() As %String [ Language = python ]

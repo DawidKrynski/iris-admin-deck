@@ -85,7 +85,7 @@ Then open `http://<host>:<port>/admindeck/index.html`. The package creates two w
 | Processes & locks | Processes (suspend, resume, terminate, broadcast), locks, CSP/web sessions |
 | Databases & system | Databases (create, edit, delete, mount/dismount, expand/compact/truncate, integrity check, which namespaces use each one), namespaces with global/routine/package mappings, journal files and a record browser (filter by global, PID or time; old and new value of each change; who last changed a global), devices, license, background jobs |
 | Logs & insights | Timeline, log viewer (current and rotated files), recurring problems, similar incidents |
-| Audit trail | Search audit records, turn individual audit events on or off, turn auditing on if it's off |
+| Audit trail | Search audit records, turn individual audit events on or off, turn auditing on if it's off. Maintenance: IRISAUDIT size and date range, copy records to a namespace, purge records older than N days (never the newest ones; you type the number of records first) |
 | API explorer | All 190 paths (273 operations) from the 2026.2 OpenAPI spec, with an example body and a preview before sending |
 
 Ctrl+K opens a palette that finds screens, users, roles, web applications and tasks by name.
@@ -139,6 +139,9 @@ or in a comment next to the workaround in `web/js/`.
 - Resources: an empty `PublicPermission` is rejected with a bare `400` and no message, so a resource without
   public access can't be created or set to that through the API, even though `GET` reports `""` for existing
   ones.
+- Audit copy and purge answer `202` and say nothing about how many records they processed. A bad date or an
+  unknown namespace only shows up as a failed background task. There is no count call, and every audit query
+  writes an `AuditReport` record of its own.
 - Wallet secret names are qualified with the collection: `<collection>.<secret>`.
 - `/api/admin` sends no CORS headers, so a UI has to be served by IRIS itself or through a same-origin proxy.
   That's why this one lives under `/admindeck` on the same web server.
