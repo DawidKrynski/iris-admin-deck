@@ -1,6 +1,7 @@
 import { admin, findInList, waitAsync, ApiError } from '../api.js';
 import { can } from '../app.js';
-import { h, page, table, tabs, load, modal, confirmAction, applyVerified, objectForm, diff, kv, badge, fmtBytes, button, toolbar, clear, errorBox, toast, toastError, apiCallPreview, icon } from '../ui.js';
+import { h, page, table, tabs, load, modal, confirmAction, applyVerified, objectForm, diff, kv, badge, fmtBytes, button, toolbar, clear, errorBox, toast, toastError, apiCallPreview, icon, loading } from '../ui.js';
+import { RECORD_TYPES, PAGE_SIZE, conditions, recordsQuery, refine, nextOffset, globalRef, recordValues } from '../journal.js';
 
 // Databases this deck never deletes, dismounts or makes read-only.
 const PROTECTED = new Set(['IRISSYS', 'IRISLIB', 'IRISTEMP', 'IRISAUDIT', 'IRISSECURITY', 'IRISLOCALDATA', 'IRISMETRICS', 'ENSLIB', 'IPM', 'HSLIB']);
@@ -464,17 +465,164 @@ function mappingDelete(namespace, kind, name) {
 }
 
 function journalTab(body) {
-  const reload = () => load(body, async () => Promise.all([admin.get('/v2/journal/settings'), admin.get('/v2/journal/files')]), ([settings, files]) => [
-    toolbar(button('Refresh', reload), can('Operate') ? button('Switch journal file', () => confirmAction({
-      title: 'Switch journal file', message: 'Close the current journal file and begin writing a new one.',
-      call: { method: 'POST', path: '/api/admin/v2/journal/switch-file', body: {} },
-      run: () => admin.post('/v2/journal/switch-file'), done: 'Journal file switched',
-    }).then((ok) => ok && reload())) : null),
-    h('div.card', h('h2', 'Settings'), kv(settings)), h('h3', 'Files'),
-    table([{ key: 'Name', label: 'File' }, { key: 'Size', label: 'Size', render: (r) => fmtBytes(r.Size) },
-      { key: 'CreationTime', label: 'Created' }, { key: 'Reason', label: 'Reason' }], files || [], { empty: 'No journal files.' }),
-  ]);
+  // Journal files and records need Operate (%Admin_Operate); Manage alone does not read them.
+  if (!can('Operate')) { clear(body, h('p.muted', 'Journal files and records need the Operate privilege (%Admin_Operate).')); return; }
+  const records = h('div.journal-records');
+  const find = h('input', { type: 'search', placeholder: '^Global or ^Global("sub")', 'aria-label': 'Global to find',
+    onkeydown: (e) => { if (e.key === 'Enter') findChanges(records, find.value); } });
+  const reload = () => load(body, async () => Promise.all([admin.get('/v2/journal/settings'), admin.get('/v2/journal/files')]), ([settings, files]) => {
+    journalFiles = newestFirst(files);
+    return [
+      toolbar(button('Refresh', reload), button('Switch journal file', () => confirmAction({
+        title: 'Switch journal file', message: 'Close the current journal file and begin writing a new one.',
+        call: { method: 'POST', path: '/api/admin/v2/journal/switch-file', body: {} },
+        run: () => admin.post('/v2/journal/switch-file'), done: 'Journal file switched',
+      }).then((ok) => ok && reload())), h('span.journal-find', find, button('Who changed it?', () => findChanges(records, find.value), 'primary'))),
+      h('div.card', h('h2', 'Settings'), kv(settings)), h('h3', 'Files'),
+      table([{ key: 'Name', label: 'File' }, { key: 'Size', label: 'Size', render: (r) => fmtBytes(r.Size) },
+        { key: 'CreationTime', label: 'Created' }, { key: 'Reason', label: 'Reason' }], journalFiles, { empty: 'No journal files.',
+        onRow: (r) => journalRecords(records, r), actions: (r) => [button('Records', () => journalRecords(records, r), 'small')] }),
+      records,
+    ];
+  });
   reload();
+}
+
+let journalFiles = [];
+const newestFirst = (files) => [...(files || [])].sort((a, b) =>
+  String(b.CreationTime).localeCompare(String(a.CreationTime)) || String(b.Name).localeCompare(String(a.Name)));
+const fileName = (path) => String(path || '').split(/[\\/]/).at(-1);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const FIND_FILES = 3; // "who changed" scans the newest files only: older ones can be large and slow to read
+const FIND_ROWS = 50;
+
+// POST /v2/journal/file/records queues a background task; its Result is the list of records.
+async function readRecords(query) {
+  let result = await admin.post('/v2/journal/file/records', {}, query);
+  if (result && result.GUID && result.State === 'Queued') {
+    const task = await waitAsync(result.GUID, { interval: 500, timeoutMs: 3 * 60 * 1000 });
+    if (/fail|error|cancel/i.test(task.State)) throw new Error(task.FailureReason || `Task ${task.State}`);
+    result = task.Result;
+  }
+  return Array.isArray(result) ? result : [];
+}
+
+const typeBadge = (r) => badge(r.ExtTypeName || r.TypeName || '—', /KILL/i.test(r.TypeName) ? 'warn' : '');
+const RECORD_COLUMNS = [
+  { key: 'TimeStamp', label: 'Time' },
+  { key: 'TypeName', label: 'Type', render: typeBadge },
+  { key: 'GlobalNode', label: 'Global', render: (r) => h('span.mono', r.GlobalNode || '—') },
+  { key: 'DatabaseName', label: 'Database' },
+  { key: 'ProcessID', label: 'PID' },
+  { key: 'InTransaction', label: 'In transaction', render: (r) => r.InTransaction ? badge('Yes') : 'No' },
+];
+const RECORD_FILTERS = [['global', 'Global contains'], ['pid', 'Process ID'], ['database', 'Database contains'], ['type', 'Type'], ['from', 'From'], ['to', 'Until']];
+
+// Records of one journal file, newest first, a page at a time.
+function journalRecords(panel, file) {
+  const inputs = {
+    global: h('input', { placeholder: '^Orders', 'aria-label': 'Global contains' }),
+    pid: h('input', { type: 'number', min: 1, 'aria-label': 'Process ID' }),
+    database: h('input', { placeholder: '/usr/irissys/mgr/user/', 'aria-label': 'Database contains' }),
+    type: h('select', { 'aria-label': 'Type' }, h('option', { value: '' }, 'Any'), RECORD_TYPES.map((t) => h('option', { value: t }, t))),
+    from: h('input', { type: 'datetime-local', step: 1, 'aria-label': 'From' }),
+    to: h('input', { type: 'datetime-local', step: 1, 'aria-label': 'Until' }),
+  };
+  const hideOwn = h('input', { type: 'checkbox', checked: true, onchange: () => readPage(true) });
+  const status = h('p.muted.small.journal-status');
+  const result = h('div');
+  const more = h('div.toolbar');
+  const state = { rows: [], read: 0, offset: null, applied: {}, hidden: 0 };
+  const describe = () => {
+    const [first, ...rest] = conditions(state.applied);
+    return `Showing ${plural(state.rows.length, 'record')}, newest first, of the latest ${state.read} ${first ? 'matching' : 'in this file'}`
+      + `${state.offset ? ' — older records not loaded yet' : ' — whole file read'}.`
+      + (first ? ` IRIS matched ${first.label.toLowerCase()} ${first.value}` : '')
+      + (rest.length ? `; ${rest.map((c) => c.label.toLowerCase()).join(', ')} narrowed each page here.` : first ? '.' : '')
+      + (state.hidden ? ` ${plural(state.hidden, 'record')} of API background tasks and bare transaction markers hidden.` : '');
+  };
+  const show = () => {
+    status.textContent = describe();
+    clear(result, table(RECORD_COLUMNS, state.rows, { empty: 'No records match.', pageSize: PAGE_SIZE,
+      placeholder: 'Filter loaded records…', onRow: (r) => recordDetails(file.Name, r) }));
+    clear(more, state.offset ? button(`Load ${PAGE_SIZE} older`, () => readPage(false)) : null);
+  };
+  let generation = 0;
+  const readPage = async (restart) => {
+    // Only the newest search may write: an older one still in flight is dropped when it answers.
+    const mine = restart ? ++generation : generation;
+    if (restart) Object.assign(state, { rows: [], read: 0, hidden: 0, offset: null, applied: Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value])) });
+    clear(more, loading('Reading journal…'));
+    try {
+      // A page can be all hidden bookkeeping: read on (a few pages at most) until something is left to show.
+      for (let pages = 0, shown = 0; pages < 5 && !shown; pages++) {
+        const rows = await readRecords(recordsQuery(file.Name, state.applied, { offset: state.offset }));
+        if (mine !== generation) return;
+        // initialOffset is inclusive: the record the previous page ended with comes again.
+        const added = rows.filter((r) => !(state.offset && Number(r.Address) === state.offset));
+        const kept = refine(added, state.applied, { hideOwn: hideOwn.checked });
+        state.read += added.length;
+        state.hidden += refine(added, state.applied).length - kept.length;
+        state.rows.push(...kept);
+        state.offset = rows.length >= PAGE_SIZE ? nextOffset(rows) : null;
+        shown = kept.length || !state.offset;
+      }
+      show();
+    } catch (e) { if (mine === generation) { clear(more); clear(result, errorBox(e, () => readPage(restart))); } }
+  };
+  clear(panel, h('div.card',
+    h('h2', h('span', `Records in ${fileName(file.Name)}`), h('span.muted.small', `${fmtBytes(file.Size)} · created ${file.CreationTime || '—'}`)),
+    h('div.form-grid', RECORD_FILTERS.map(([k, label]) => h('div.field', h('label', label), inputs[k]))),
+    toolbar(button('Show records', () => readPage(true), 'primary'),
+      button('Clear filters', () => { Object.values(inputs).forEach((el) => { el.value = ''; }); readPage(true); }),
+      h('label.journal-hide', hideOwn, ' Hide API task bookkeeping and bare transaction markers')),
+    status, result, more));
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  readPage(true);
+}
+
+// "Who changed ^X": the latest records of a global across the newest journal files.
+async function findChanges(panel, value) {
+  const global = globalRef(value);
+  if (!global) { toast('Enter a global name, e.g. ^Orders', 'warn'); return; }
+  const files = journalFiles.slice(0, FIND_FILES);
+  const content = h('div', loading(`Searching ${plural(files.length, 'journal file')}…`));
+  clear(panel, h('div.card', h('h2', h('span', `Changes to ${global}`), h('span.muted.small', `newest ${files.length} of ${journalFiles.length} files`)), content));
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  try {
+    const found = await Promise.all(files.map(async (f) =>
+      (await readRecords(recordsQuery(f.Name, { global }, { pageSize: FIND_ROWS }))).map((r) => ({ ...r, File: f.Name }))));
+    // Timestamps have one-second resolution: within a file the address gives the order.
+    const rows = found.flat().sort((a, b) => String(b.TimeStamp).localeCompare(String(a.TimeStamp)) || Number(b.Address) - Number(a.Address));
+    const capped = found.some((list) => list.length >= FIND_ROWS);
+    clear(content, h('p.muted.small.journal-status', `${plural(rows.length, 'change')} found, newest first`
+      + `${capped ? ` (at most ${FIND_ROWS} per file: open a file for older ones)` : ''}. Old values are journaled only inside transactions.`),
+    table([...RECORD_COLUMNS, { key: 'File', label: 'File', render: (r) => fileName(r.File) }], rows, {
+      empty: `No changes to ${global} in the newest journal files.`, onRow: (r) => recordDetails(r.File, r) }));
+  } catch (e) { clear(content, errorBox(e, () => findChanges(panel, value))); }
+}
+
+async function recordDetails(file, row) {
+  const content = h('div', loading());
+  modal(`Journal record ${row.Address}`, content, { wide: true });
+  try {
+    const rec = await admin.get('/v2/journal/file/record', { file, address: row.Address });
+    const sk = rec.SetKill || {};
+    const v = recordValues(rec);
+    const shown = (has, value, missing) => has ? h('pre', String(value)) : h('span.muted', missing);
+    clear(content, h('dl.kv.journal-record',
+      h('dt', 'Global'), h('dd', h('span.mono', sk.GlobalReference || sk.GlobalNode || row.GlobalNode || '—')),
+      h('dt', 'Operation'), h('dd', typeBadge(rec)),
+      h('dt', 'Old value'), h('dd', shown(v.hasOld, v.oldValue, rec.InTransaction ? '— (node had no value)' : '— (not journaled outside a transaction)')),
+      h('dt', 'New value'), h('dd', shown(v.hasNew, v.newValue, /KILL/i.test(rec.TypeName) ? '— (killed)' : '—')),
+      h('dt', 'Time'), h('dd', rec.TimeStamp || '—'),
+      h('dt', 'Process'), h('dd', String(rec.ProcessID ?? '—'), rec.JobID !== undefined ? h('span.muted', ` (job ${rec.JobID})`) : null),
+      h('dt', 'Transaction'), h('dd', rec.InTransaction ? 'Inside a transaction' : 'Not in a transaction'),
+      h('dt', 'Database'), h('dd', sk.DatabaseName || row.DatabaseName || '—'),
+      h('dt', 'File'), h('dd', `${file} @ ${row.Address}`)),
+    h('p.muted.small', 'IRIS keeps the old value only for changes made inside a transaction (it is needed for rollback).'),
+    h('details', h('summary', 'Raw record'), kv(rec)));
+  } catch (e) { clear(content, errorBox(e)); }
 }
 
 const DEVICE_TYPES = [['TRM', 'Terminal'], ['SPL', 'Spooling device'], ['MT', 'Magnetic tape drive'], ['BT', 'Cartridge tape drive'], ['IPC', 'Interprocess communication'], ['OTH', 'Other (incl. printers, sequential files)']];

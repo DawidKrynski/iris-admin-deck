@@ -11,6 +11,7 @@ Standard library only.
 """
 import json
 import os
+import subprocess
 import time
 import unittest
 import urllib.error
@@ -151,6 +152,81 @@ class ReadEndpoints(unittest.TestCase):
         task = self.api.wait(check, timeout=120)
         self.assertEqual(task["State"], "Finished")
         self.assertIn("No Errors", " ".join(task.get("Console") or []))
+
+
+def iris_container():
+    """Id of the running IRIS container (IRIS_CONTAINER overrides), or None when docker is not available."""
+    if os.environ.get("IRIS_CONTAINER"):
+        return os.environ["IRIS_CONTAINER"]
+    try:
+        out = subprocess.run(["docker", "ps", "-q", "--filter", "name=iris-admin-deck"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (out.stdout.split() or [None])[0]
+
+
+def iris_session(container, code):
+    """Runs ObjectScript lines in the USER namespace of the container (iris session, OS authentication)."""
+    out = subprocess.run(["docker", "exec", "-i", container, "iris", "session", "IRIS", "-U", "USER"],
+                         input=code + "\nhalt\n", capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr or out.stdout
+    return out.stdout
+
+
+class JournalExplorer(unittest.TestCase):
+    """The journal explorer's calls find a global change made in USER: records (filtered, newest first) and its details."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.container = iris_container()
+        if not cls.container:
+            raise unittest.SkipTest("no local IRIS container to make a journaled change in")
+        cls.api = Client("/api/admin")
+        cls.node = f"^ZJRNTEST({os.getpid()})"
+        cls.new = f"new-{PREFIX}"
+        # Old values are journaled only inside a transaction: the second SET runs in one.
+        iris_session(cls.container, f'set {cls.node}="old" tstart  set {cls.node}="{cls.new}" tcommit')
+
+    @classmethod
+    def tearDownClass(cls):
+        iris_session(cls.container, f"kill {cls.node}")
+
+    def records(self, file, **query):
+        r = self.api.ok("POST", "/v2/journal/file/records", {"file": file, "reverse": 1, "maxRows": 50, **query}, {})
+        self.assertEqual(r.status, 202)
+        task = self.api.wait(r)
+        self.assertEqual(task["State"], "Finished", task.get("FailureReason"))
+        return task["Result"]
+
+    def test_find_change_and_details(self):
+        files = sorted(self.api.get("/v2/journal/files"), key=lambda f: (f["CreationTime"], f["Name"]), reverse=True)
+        current = files[0]["Name"]
+        rows = self.records(current, matchColumnName="GlobalNode", matchOperator="[", matchValue=self.node)
+        self.assertTrue(rows, f"no journal records for {self.node}")
+        self.assertTrue(all(self.node in r["GlobalNode"] for r in rows))
+        self.assertEqual([r["Address"] for r in rows], sorted((r["Address"] for r in rows), reverse=True))  # newest first
+        latest = rows[0]
+        self.assertEqual((latest["TypeName"], latest["InTransaction"]), ("SET", True))
+
+        record = self.api.get("/v2/journal/file/record", file=current, address=latest["Address"])
+        self.assertEqual(record["SetKill"]["NewValue"], self.new)
+        self.assertEqual(record["SetKill"]["OldValue"], "old")
+        self.assertEqual(str(record["ProcessID"]), str(latest["ProcessID"]))
+
+        by_pid = self.records(current, matchColumnName="ProcessID", matchOperator="=", matchValue=latest["ProcessID"])
+        self.assertIn(latest["Address"], [r["Address"] for r in by_pid])
+        self.assertTrue(all(str(r["ProcessID"]) == str(latest["ProcessID"]) for r in by_pid))
+
+    def test_paging_continues_from_initial_offset(self):
+        current = sorted(self.api.get("/v2/journal/files"), key=lambda f: (f["CreationTime"], f["Name"]), reverse=True)[0]["Name"]
+        # IRIS 2026.2 returns half of maxRows (rounded up); the UI asks for twice its page size.
+        first_page = self.records(current, maxRows=10)
+        if len(first_page) < 5:
+            self.skipTest("journal file too small to page")
+        last = first_page[-1]["Address"]
+        second = self.records(current, maxRows=10, initialOffset=last)
+        self.assertEqual(second[0]["Address"], last)  # initialOffset is inclusive
+        self.assertTrue(all(r["Address"] <= last for r in second))
 
 
 class WriteFlows(unittest.TestCase):

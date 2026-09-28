@@ -83,7 +83,7 @@ Then open `http://<host>:<port>/admindeck/index.html`. The package creates two w
 | Secrets & certificates | Wallet collections and secrets (write-only values), X.509 credentials with expiry, SSL/TLS configurations with a test, OAuth2 server definitions and client configurations |
 | Tasks | Run now, suspend/resume, edit, history, upcoming runs, suspend/resume the Task Manager itself |
 | Processes & locks | Processes (suspend, resume, terminate, broadcast), locks, CSP/web sessions |
-| Databases & system | Databases (create, edit, delete, mount/dismount, expand/compact/truncate, integrity check, which namespaces use each one), namespaces with global/routine/package mappings, journal, devices, license, background jobs |
+| Databases & system | Databases (create, edit, delete, mount/dismount, expand/compact/truncate, integrity check, which namespaces use each one), namespaces with global/routine/package mappings, journal files and a record browser (filter by global, PID or time; old and new value of each change; who last changed a global), devices, license, background jobs |
 | Logs & insights | Timeline, log viewer (current and rotated files), recurring problems, similar incidents |
 | Audit trail | Search audit records, turn individual audit events on or off, turn auditing on if it's off |
 | API explorer | All 190 paths (273 operations) from the 2026.2 OpenAPI spec, with an example body and a preview before sending |

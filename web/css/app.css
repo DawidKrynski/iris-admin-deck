@@ -392,3 +392,13 @@ a.next-step:hover { color: var(--accent); text-decoration-color: currentColor; }
 
 /* SQL privileges (roles screen): long grant/revoke query strings wrap inside the API preview */
 .api-preview summary code { word-break: break-all; }
+
+/* journal explorer (system → journal) */
+.journal-find { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.toolbar .journal-find input { width: 240px; }
+.journal-records { margin-top: 16px; scroll-margin-top: 16px; }
+.journal-records:empty { display: none; }
+.journal-status { margin: 12px 0 8px; }
+.journal-record pre { margin: 0; }
+.journal-records td:first-child, .journal-records td:nth-child(5) { white-space: nowrap; }
+.journal-hide { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text-2); }

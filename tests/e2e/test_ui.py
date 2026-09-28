@@ -150,6 +150,19 @@ def run_ui_checks(page):
         assert f"{source}:" in statuses, f"no status for {source}: {statuses}"
     print("ok   timeline: status for all seven sources")
 
+    # 5. Journal explorer: records of the newest file, a record's details, "who changed" search.
+    page.goto(f"{UI}#/system/journal")
+    page.locator(".tab-body tbody tr.clickable").first.locator("button:has-text('Records')").click()
+    page.wait_for_selector(".journal-records .journal-status", timeout=60_000)
+    assert "newest first" in page.locator(".journal-records .journal-status").inner_text()
+    page.locator(".journal-records tbody tr.clickable").first.click()
+    page.wait_for_selector(".modal .journal-record")
+    page.keyboard.press("Escape")
+    page.fill("input[aria-label='Global to find']", "^SYS")
+    page.click("button:has-text('Who changed it?')")
+    page.wait_for_selector(".journal-records .journal-status:has-text('found')", timeout=60_000)
+    print("ok   journal explorer: records, details, who changed")
+
 
 if __name__ == "__main__":
     main()
