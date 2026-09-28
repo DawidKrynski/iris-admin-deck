@@ -1,7 +1,9 @@
 // Verified changes. A "200 OK" only says the request was accepted, so every change is checked twice:
 //   before — the target is read again and the write is refused if the fields about to change no
 //            longer hold the values the user was looking at (someone else changed them meanwhile);
-//   after  — the target is read back and the outcome is reported as verified or not reflected.
+//   after  — the target is read back and the outcome is reported as verified, partly verified (some
+//            fields are not returned by the read), not reflected, or read-failed (saved, but the
+//            read-back itself failed, so nothing is known).
 // Only fields that can be read back are compared; secret values (passwords, keys) never are, but
 // flags about them (PasswordNeverExpires, ChangePassword) are ordinary readable settings.
 
@@ -51,7 +53,8 @@ const isNotFound = (e) => e && (e.status === 404 || /does not exist|not found/i.
  *   original  object as the user saw it (enables the stale check), optional
  *   changes   fields being set, compared before (vs original) and after (vs read-back)
  *   expect    'match' (default) | 'exists' (object readable afterwards) | 'gone' (deleted)
- * Returns { result, status: 'verified' | 'not-reflected' | 'unverified', mismatched: [keys] }.
+ * Returns { result, status, mismatched: [keys], unchecked: [keys] } where status is
+ *   'verified' | 'partly-verified' | 'not-reflected' | 'read-failed' | 'unverified' (nothing readable to compare).
  */
 export async function verifiedChange({ read, write, original, changes = {}, expect = 'match' }) {
   const keys = comparable(changes);
@@ -77,18 +80,22 @@ export async function verifiedChange({ read, write, original, changes = {}, expe
     after = await read();
   } catch (e) {
     if (expect === 'gone' && isNotFound(e)) return { result, status: 'verified', mismatched: [] };
-    return { result, status: 'unverified', mismatched: [], error: e };
+    return { result, status: 'read-failed', mismatched: [], error: e };
   }
   if (expect === 'gone') return { result, status: 'not-reflected', mismatched: ['still exists'] };
   if (expect === 'exists') return { result, status: 'verified', mismatched: [] };
   const checkable = keys.filter((k) => after && k in after);
   const mismatched = checkable.filter((k) => !sameField(k, after[k], changes[k]));
-  return { result, status: mismatched.length ? 'not-reflected' : checkable.length ? 'verified' : 'unverified', mismatched, after };
+  const unchecked = keys.filter((k) => !checkable.includes(k));
+  const status = mismatched.length ? 'not-reflected' : !checkable.length ? 'unverified' : unchecked.length ? 'partly-verified' : 'verified';
+  return { result, status, mismatched, unchecked, after };
 }
 
 /** Short human message for a verification outcome. */
-export function describeVerification({ status, mismatched }, what = 'Change') {
+export function describeVerification({ status, mismatched, unchecked = [], error }, what = 'Change') {
   if (status === 'verified') return [`${what}. Read back: OK`, 'ok'];
+  if (status === 'partly-verified') return [`${what}. Read back: OK, except ${unchecked.join(', ')}, which the API does not return`, 'ok'];
   if (status === 'not-reflected') return [`${what}, but the read-back differs: ${mismatched.join(', ')}`, 'warn'];
+  if (status === 'read-failed') return [`${what}, but reading it back failed${error && error.message ? `: ${error.message}` : ''}. Check it before relying on it`, 'warn'];
   return [`${what}. Accepted; nothing to read back`, 'ok'];
 }

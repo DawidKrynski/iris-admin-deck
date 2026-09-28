@@ -109,3 +109,21 @@ test('readable key-file paths are compared, key passwords are not', async () => 
   const r = await verifiedChange({ read: s.read, changes: { PrivateKeyFile: '/b.key', PrivateKeyPassword: 'x' }, write: async () => {} });
   assert.deepEqual(r.mismatched, ['PrivateKeyFile']);
 });
+
+test('a read-back that fails is a warning, not a quiet success', async () => {
+  let calls = 0;
+  const read = async () => { if (++calls > 0) throw Object.assign(new Error('HTTP 500'), { status: 500 }); };
+  const r = await verifiedChange({ read, changes: { Enabled: true }, write: async () => {} });
+  assert.equal(r.status, 'read-failed');
+  const [message, kind] = describeVerification(r, 'Saved');
+  assert.equal(kind, 'warn');
+  assert.match(message, /HTTP 500/);
+});
+
+test('fields the read does not return are named, not counted as verified', async () => {
+  const s = store({ Enabled: false });
+  const r = await verifiedChange({ read: s.read, changes: { Enabled: true, Description: 'x' }, write: async () => s.set({ Enabled: true }) });
+  assert.equal(r.status, 'partly-verified');
+  assert.deepEqual(r.unchecked, ['Description']);
+  assert.match(describeVerification(r, 'Saved')[0], /except Description/);
+});
