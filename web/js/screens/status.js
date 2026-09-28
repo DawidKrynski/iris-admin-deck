@@ -5,6 +5,7 @@
 import { admin, ext } from '../api.js';
 import { navigate, can } from '../app.js';
 import { h, clear, page, errorBox, loading, sparkline, button, badge } from '../ui.js';
+import { statusSummary } from '../status-summary.js';
 import { evaluate, tally } from '../checks.js';
 import { nextSteps, openLink, mountStep, runAgainStep } from '../actions.js';
 
@@ -52,7 +53,14 @@ const fmt = (v) => (v >= 100 ? Math.round(v).toLocaleString('en-US') : String(+v
 
 export default async function render(el) {
   const banner = h('div.status-banner');
-  const checks = h('div.card.checks');
+  const checks = h('div.card.checks', { id: 'status-checks', tabindex: '-1' });
+  let components = []; let counts = null; let unavailable = '';
+  const updateBanner = () => {
+    const summary = statusSummary(components, counts, unavailable);
+    clear(banner, h(`div.status-banner-inner.${summary.level}`, h('span.status-dot'), h('strong', summary.text),
+      summary.checksAttention ? button('View checks', () => { checks.scrollIntoView({ block: 'start' }); checks.focus({ preventScroll: true }); }, 'small') : null));
+  };
+  const updateChecks = (value) => { counts = value; updateBanner(); };
   const rows = h('div.card');
   const charts = h('div.grid.wide');
   const errors = h('div.card');
@@ -67,7 +75,7 @@ export default async function render(el) {
   refreshErrors();
   const refreshChecks = async () => {
     if (!el.isConnected) return;
-    await renderChecks(checks);
+    await renderChecks(checks, updateChecks);
     setTimeout(refreshChecks, ERRORS_REFRESH_MS);
   };
   refreshChecks();
@@ -79,31 +87,19 @@ export default async function render(el) {
       const series = Object.fromEntries(hist.fields.map((f, i) => [f, hist.points.map((p) => p[i + 1])]));
       series.webRequestsPerSec = rate(hist.points.map((p) => p[0]), series.webRequests, 120);
       const age = hist.points.length ? hist.now - hist.points.at(-1)[0] : 0;
-      if (age > 3 * hist.interval) unknownBanner(banner, `No new samples for ${Math.round(age)} s. The values below are stale.`);
-      else renderBanner(banner, series);
+      components = COMPONENTS.map((c) => ({ name: c.name, level: levelOf(c, series[c.field].at(-1)) }));
+      unavailable = age > 3 * hist.interval ? `No new samples for ${Math.round(age)} s. The values below are stale.` : '';
+      updateBanner();
       renderRows(rows, hist.now, hist.points.map((p) => p[0]), series);
       renderCharts(charts, series, hist.points.map((p) => p[0]));
     } catch (e) {
-      unknownBanner(banner, 'Status unavailable: the metrics could not be read.');
+      unavailable = 'Status unavailable: the metrics could not be read.';
+      updateBanner();
       clear(rows, errorBox(e));
     }
     setTimeout(tick, REFRESH_MS);
   };
   tick();
-}
-
-function unknownBanner(box, text) {
-  clear(box, h('div.status-banner-inner.none', h('span.status-dot'), h('strong', text)));
-}
-
-function renderBanner(box, series) {
-  const levels = COMPONENTS.map((c) => levelOf(c, series[c.field].at(-1)));
-  const worst = Math.max(...levels);
-  const which = (level) => COMPONENTS.filter((c, i) => levels[i] === level).map((c) => c.name).join(', ');
-  const text = worst < 0 ? 'Waiting for the first samples…'
-    : worst ? `${worst === 2 ? 'Attention needed' : 'Degraded'}: ${which(worst)}`
-      : `All components normal${levels.includes(-1) ? ` · no data: ${which(-1)}` : ''}`;
-  clear(box, h(`div.status-banner-inner.${worst < 0 ? 'none' : LEVEL[worst]}`, h('span.status-dot'), h('strong', text)));
 }
 
 function renderRows(box, now, times, series) {
@@ -212,8 +208,8 @@ async function readCertificates() {
     .then((cert) => ({ alias: c.Alias, date: cert.ValidityNotAfter }), () => ({ alias: c.Alias, date: null }))));
 }
 
-async function renderChecks(box) {
-  const refresh = () => renderChecks(box);
+async function renderChecks(box, onSummary) {
+  const refresh = () => renderChecks(box, onSummary);
   if (!box.childElementCount) clear(box, h('h2', 'Checks'), loading());
   const dashboard = source(['Operate'], () => admin.get('/v2/monitor/dashboard/main'));
   const part = (key) => dashboard.then((m) => (m.unavailable ? m : key(m)));
@@ -237,9 +233,11 @@ async function renderChecks(box) {
     rows = evaluate({ databases, certificates, backups, tasks, taskHistory, taskManager, licensing, journalSpace, disks, metrics, audit });
   } catch (e) {
     clear(box, h('h2', 'Checks'), errorBox(e));
+    onSummary(null);
     return;
   }
   const n = tally(rows);
+  onSummary(n);
   clear(box,
     h('h2', 'Checks', h('span.muted.small', [n.fail && `${n.fail} failing`, n.warn && `${n.warn} warnings`,
       n.unknown && `${n.unknown} not checked`, `${n.ok} ok`].filter(Boolean).join(' · '))),

@@ -34,8 +34,12 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
 
 - Plain ES modules, no build step, no runtime dependencies.
 - `api.js`: two JWT clients (`admin`, `ext`) with single-flight refresh, and a session generation counter that
-  drops late refresh results after sign-out. It unwraps the `{status, console, result}` envelope, turns
+  drops late refresh results after sign-out. Both clients refresh 10 seconds before JWT expiry while the tab
+  is open, recheck on visibility changes, and expire the session after eight hours without pointer or keyboard
+  activity. The activity timestamp survives page reloads; passwords are never retained. It unwraps the `{status, console, result}` envelope, turns
   `202 Accepted` + `Location` into `{GUID, State: 'Queued'}`, and `waitAsync()` polls `/v2/async-result`.
+  `jobs.js` records polling progress in memory; `jobs-ui.js` shows active operations and the latest 20 finished
+  outcomes in the top bar. History clears on sign-out or page reload; response bodies are not retained.
   Password, secret and token fields are redacted before anything reaches the API console, previews or `curl`.
 - `ui.js`: the DOM helper `h()` (text only, never `innerHTML`), table, tabs, modal, `confirmAction()` with an
   API-call preview and optional typed confirmation, `objectForm()` + `diff()` for PUT payloads, toasts.

@@ -1,3 +1,4 @@
+import { jobsIndicator } from './jobs-ui.js';
 // App shell: login, navigation, hash router, API console drawer.
 import { admin, ext, login, logout, onCall, curl } from './api.js';
 import { h, clear, toastError, copy, errorBox, loading, icon, closeModals } from './ui.js';
@@ -157,6 +158,7 @@ function renderShell() {
     menuButton,
     h('div.spacer'),
     h('button.ghost.search-button', { onclick: () => openPalette(paletteSources()), title: 'Go to anything (Ctrl+K)' }, icon('search'), h('span', 'Search'), h('kbd', 'Ctrl K')),
+    jobsIndicator(),
     h('button.ghost.console-button', { onclick: () => toggleConsole(), title: 'Show API calls made by this page' }, icon('console'), h('span', 'API console')),
     h('button.ghost', { onclick: cycleTheme, title: 'Toggle light / dark theme', 'aria-label': 'Dark theme', 'aria-pressed': document.documentElement.dataset.theme === 'dark' }, icon('theme')),
     h('button.ghost.account-button', { onclick: toggleAccount, 'aria-label': 'Account', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', title: 'Account' },

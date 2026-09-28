@@ -223,7 +223,7 @@ const SUBSYSTEMS = [
     load: async () => {
       let r = await admin.post('/v2/security/audit/records', {}, { maxRows: 300, ascending: 0 });
       if (r && r.GUID && r.State === 'Queued') {
-        const task = await waitAsync(r.GUID, { interval: 500, timeoutMs: 20000 });
+        const task = await waitAsync(r.GUID, { label: 'Audit records', interval: 500, timeoutMs: 20000 });
         // A failed or cancelled query is an unavailable source, not an empty audit log.
         if (!/finish|complete|done/i.test(String(task.State))) throw new Error(`Audit query ${String(task.State).toLowerCase()}`);
         r = task.Result;

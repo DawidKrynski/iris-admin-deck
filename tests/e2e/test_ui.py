@@ -7,6 +7,7 @@ Uses a throw-away web application named per run and always removes it. Exits non
 """
 import json
 import os
+import re
 import secrets
 import sys
 import urllib.request
@@ -260,6 +261,17 @@ def run_ui_checks(page):
     page.locator(".tab-body tbody tr.clickable").first.locator("button:has-text('Records')").click()
     page.wait_for_selector(".journal-records .journal-status", timeout=60_000)
     assert "newest first" in page.locator(".journal-records .journal-status").inner_text()
+    # The journal read above queues a real background operation; its outcome stays in the top bar.
+    jobs_button = page.get_by_role("button", name=re.compile(r"Background operations: "))
+    jobs_button.click()
+    assert jobs_button.get_attribute("aria-expanded") == "true"
+    finished_job = page.locator(".jobs-list li").filter(has_text="Journal records").filter(has_text="Finished")
+    finished_job.first.wait_for(timeout=60_000)
+    assert "Started" in finished_job.first.inner_text()
+    assert "elapsed" in finished_job.first.inner_text()
+    page.keyboard.press("Escape")
+    assert jobs_button.get_attribute("aria-expanded") == "false"
+    print("ok   background indicator: journal operation finished")
     page.locator(".journal-records tbody tr.clickable").first.click()
     page.wait_for_selector(".modal .journal-record")
     page.keyboard.press("Escape")

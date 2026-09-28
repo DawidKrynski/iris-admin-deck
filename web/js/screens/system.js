@@ -147,7 +147,7 @@ async function databaseInfo(row) {
   // database-dir/info runs as a background task (202 + async-result)
   let info = await admin.post('/v2/database-dir/info', {}, { dir: row.Directory });
   if (info && info.GUID && info.State === 'Queued') {
-    const task = await waitAsync(info.GUID, { interval: 700 });
+    const task = await waitAsync(info.GUID, { label: `Database info: ${row.Name || row.Directory}`, interval: 700 });
     if (/fail|error/i.test(task.State)) throw new Error(task.FailureReason || `Task ${task.State}`);
     info = task.Result || {};
   }
@@ -345,18 +345,13 @@ function spaceTask(row, op, reload) {
 function watchTask(id, title) {
   const content = h('div', h('div.loading', 'Waiting for task…'));
   const view = modal(title, content, { wide: true });
-  const poll = async () => {
+  waitAsync(id, { label: title, interval: 3000, onUpdate: (task) => {
     if (!view.el.isConnected) return;
-    try {
-      const task = await admin.get('/v2/async-result', { id });
-      const { Console: consoleLines, Result: result, ...meta } = task;
-      clear(content, kv(meta),
-        Array.isArray(consoleLines) && consoleLines.length ? [h('h3', 'Output'), h('pre', consoleLines.join('\n'))] : null,
-        result ? [h('h3', 'Result'), h('pre', JSON.stringify(result, null, 2))] : null);
-      if (!taskDone(task)) setTimeout(poll, 3000);
-    } catch (e) { clear(content, errorBox(e, poll)); }
-  };
-  poll();
+    const { Console: consoleLines, Result: result, ...meta } = task;
+    clear(content, kv(meta),
+      Array.isArray(consoleLines) && consoleLines.length ? [h('h3', 'Output'), h('pre', consoleLines.join('\n'))] : null,
+      result ? [h('h3', 'Result'), h('pre', JSON.stringify(result, null, 2))] : null);
+  } }).catch((e) => { if (view.el.isConnected) clear(content, errorBox(e)); });
 }
 
 function integrityCheck(row) {
@@ -547,7 +542,7 @@ const FIND_ROWS = 50;
 async function readRecords(query) {
   let result = await admin.post('/v2/journal/file/records', {}, query);
   if (result && result.GUID && result.State === 'Queued') {
-    const task = await waitAsync(result.GUID, { interval: 500, timeoutMs: 3 * 60 * 1000 });
+    const task = await waitAsync(result.GUID, { label: 'Journal records', interval: 500, timeoutMs: 3 * 60 * 1000 });
     if (/fail|error|cancel/i.test(task.State)) throw new Error(task.FailureReason || `Task ${task.State}`);
     result = task.Result;
   }

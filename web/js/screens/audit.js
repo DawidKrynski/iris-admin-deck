@@ -38,7 +38,7 @@ async function queryRecords(query) {
   const result = await admin.post('/v2/security/audit/records', {}, query);
   if (!isAsync(result)) return result;
   // The query runs as a background task that usually finishes in well under a second: poll quickly.
-  return waitAsync(result.GUID || result.Id || result.id, { interval: 300, timeoutMs: 3 * 60 * 1000 });
+  return waitAsync(result.GUID || result.Id || result.id, { label: 'Audit records', interval: 300, timeoutMs: 3 * 60 * 1000 });
 }
 const recordRows = (result) => (Array.isArray(result) ? result : Array.isArray(result?.Result) ? result.Result :
   Array.isArray(result?.Result?.Records) ? result.Result.Records : []);
@@ -118,7 +118,7 @@ function copyCard() {
       message: `${countLabel(count, COUNT_CAP)} records will be copied. The audit trail itself is not changed.`,
       call: { method: 'POST', path: '/api/admin/v2/security/audit/record/copy', body }, confirmLabel: 'Copy',
       run: async () => {
-        await finish(await admin.post('/v2/security/audit/record/copy', body));
+        await finish(await admin.post('/v2/security/audit/record/copy', body), 'Copy audit records');
         // The copy is not readable through the API; confirm at least that the source kept its records.
         const kept = await countRecords(range);
         toast(kept >= count ? `Copy finished. ${countLabel(kept, COUNT_CAP)} records still in IRISAUDIT.` :
@@ -148,7 +148,7 @@ function purgeCard(reload) {
       message: `${countLabel(count, COUNT_CAP)} audit records older than ${cutoff} will be permanently deleted. Copy them to a namespace first if you need to keep them.`,
       confirmText: String(count), call: { method: 'POST', path: '/api/admin/v2/security/audit/record/purge', body },
       run: async () => {
-        await finish(await admin.post('/v2/security/audit/record/purge', body));
+        await finish(await admin.post('/v2/security/audit/record/purge', body), 'Purge audit records');
         const left = await countRecords(range);
         toast(left ? `Purge accepted, but ${left} records before ${cutoff} remain` : 'Records purged. Read back: none left before the cutoff.', left ? 'warn' : 'ok');
       } });
@@ -161,8 +161,8 @@ function purgeCard(reload) {
 }
 
 /** Waits for a queued copy/purge and fails when the background task did. */
-async function finish(result) {
-  const task = isAsync(result) ? await waitAsync(result.GUID || result.Id || result.id, { interval: 500 }) : result;
+async function finish(result, label) {
+  const task = isAsync(result) ? await waitAsync(result.GUID || result.Id || result.id, { label, interval: 500 }) : result;
   if (task && /fail|error|cancel/i.test(String(task.State || ''))) throw new Error(task.FailureReason || `Background task ${task.State}`);
   return task;
 }

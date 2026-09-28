@@ -435,3 +435,9 @@ tr.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.jobs-popover { position: absolute; right: 16px; top: calc(100% + 6px); width: min(420px, calc(100vw - 32px)); max-height: 60vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-pop); padding: 14px 16px; }
+.jobs-list { list-style: none; padding: 0; margin: 10px 0 0; overflow-wrap: anywhere; }
+.jobs-list li + li { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; }
+.checks { scroll-margin-top: 64px; }

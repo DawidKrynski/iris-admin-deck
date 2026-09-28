@@ -1,3 +1,5 @@
+import { sessionSchedule, IDLE_MS } from './session.js';
+import { jobs } from './jobs.js';
 // API client for the SysAdmin API (/api/admin) and the Admin Deck extension (/admindeck/api).
 // Both use JWT: POST <base>/login -> {access_token, refresh_token}. Tokens live in sessionStorage,
 // the password is never stored. Each base keeps its own single-flight refresh.
@@ -63,12 +65,30 @@ function errorMessage(payload, status) {
   return status === 400 ? 'HTTP 400 Bad Request (no reason given)' : `HTTP ${status}`;
 }
 
+const activityKey = 'adminDeck.lastActivity';
+let lastActivity = store(activityKey) || Date.now();
+let expiring = false;
+let idleTimer;
+function scheduleIdle() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (sessionSchedule(null, lastActivity).expired) expireSession();
+    else scheduleIdle();
+  }, Math.max(0, lastActivity + IDLE_MS - Date.now()));
+}
+function expireSession() {
+  if (expiring) return;
+  expiring = true;
+  logout().then(() => window.dispatchEvent(new CustomEvent('session-expired')));
+}
+
 class Client {
   constructor(base, key) {
     this.base = base;
     this.key = key;
     this.tokens = store(key) || null;
     this.refreshing = null;
+    this.timer = null;
     this.generation = 0; // bumped on login/logout so late refresh results are discarded
   }
 
@@ -89,6 +109,29 @@ class Client {
   setTokens(data) {
     this.tokens = data ? { access_token: data.access_token, refresh_token: data.refresh_token } : null;
     store(this.key, this.tokens);
+    this.schedule();
+    if (data) scheduleIdle();
+  }
+
+  schedule(retryMs) {
+    clearTimeout(this.timer);
+    if (!this.loggedIn) return;
+    const plan = sessionSchedule(jwtExpiresIn(this.tokens.access_token), lastActivity);
+    this.timer = setTimeout(() => this.keepAlive(), retryMs ? Math.min(Math.max(0, lastActivity + IDLE_MS - Date.now()), retryMs) : plan.delay);
+  }
+
+  async keepAlive() {
+    if (!this.loggedIn) return;
+    if (sessionSchedule(null, lastActivity).expired) return expireSession();
+    const gen = this.generation;
+    try {
+      if ((jwtExpiresIn(this.tokens.access_token) ?? Infinity) <= 10) await this.refresh();
+      this.schedule();
+    } catch (e) {
+      if (gen !== this.generation) return;
+      if (e.status === 401) expireSession();
+      else this.schedule(5000); // transient network failure; retry without retaining credentials
+    }
   }
 
   async logout() {
@@ -132,6 +175,10 @@ class Client {
 
   // quiet: a 401 does not end the UI session (a background call such as the change log must never sign anyone out).
   async request(method, path, { query, body, quiet = false } = {}) {
+    if (this.loggedIn && sessionSchedule(null, lastActivity).expired) {
+      expireSession();
+      throw new ApiError('Session expired', 401);
+    }
     const url = `${this.base}${path}${buildQuery(query)}`;
     const started = performance.now();
     const gen = this.generation; // the session this request belongs to
@@ -174,7 +221,10 @@ class Client {
       // Poll GET /v2/async-result?id=<GUID> (see waitAsync) for State and Result.
       const loc = res.headers.get('Location') || '';
       const id = new URLSearchParams(loc.split('?')[1] || '').get('id');
-      if (id) return { GUID: id, State: 'Queued', TaskName: `${method} ${path}` };
+      if (id) {
+        taskLabels.set(id, `${method} ${path}`);
+        return { GUID: id, State: 'Queued', TaskName: `${method} ${path}` };
+      }
     }
     return payload && Object.prototype.hasOwnProperty.call(payload, 'result') ? payload.result : payload;
   }
@@ -215,22 +265,39 @@ export async function findInList(path, query, key, value) {
   return row;
 }
 
-const FINAL_STATES = /finished|failed|cancel|error|complete/i;
-/** Polls an async SysAdmin task until it reaches a final state. Resolves with the async-result object. */
-export async function waitAsync(id, { interval = 1500, timeoutMs = 10 * 60 * 1000, onUpdate } = {}) {
+const taskLabels = new Map();
+const FINAL_STATES = /finished|failed|cancel|error|complete|done/i;
+/** Polls an async SysAdmin task, recording progress and its final outcome for this session. */
+export async function waitAsync(id, { interval = 1500, timeoutMs = 10 * 60 * 1000, onUpdate, label } = {}) {
+  const job = jobs.start(id, label || taskLabels.get(id) || `Background task ${id}`);
+  taskLabels.delete(id);
+  const gen = admin.generation;
   const until = Date.now() + timeoutMs;
-  for (;;) {
-    const task = await admin.get('/v2/async-result', { id });
-    if (onUpdate) onUpdate(task);
-    if (FINAL_STATES.test(String(task.State || ''))) return task;
-    if (Date.now() > until) throw new ApiError(`Background task ${id} is still running`, 408, task);
-    await new Promise((r) => setTimeout(r, interval));
+  try {
+    for (;;) {
+      if (gen !== admin.generation) throw new ApiError('Signed out', 401);
+      const task = await admin.get('/v2/async-result', { id });
+      if (gen !== admin.generation) throw new ApiError('Signed out', 401);
+      const done = FINAL_STATES.test(String(task.State || ''));
+      jobs.update(job, task, done);
+      if (onUpdate) onUpdate(task);
+      if (done) return task;
+      if (Date.now() > until) throw new ApiError(`Background task ${id} is still running; monitoring timed out`, 408, task);
+      await new Promise((r) => setTimeout(r, interval));
+    }
+  } catch (e) {
+    jobs.update(job, { State: e.status === 408 ? 'Monitoring timed out' : 'Monitoring failed', Message: e.message }, true);
+    throw e;
   }
 }
 export const ext = new Client(`${PREFIX}/admindeck/api`, 'adminDeck.extTokens');
 
 /** Logs in to both applications with the same credentials. The extension is optional. */
 export async function login(user, password) {
+  expiring = false;
+  lastActivity = Date.now();
+  store(activityKey, lastActivity);
+  jobs.clear();
   await admin.login(user, password);
   try {
     await ext.login(user, password);
@@ -241,6 +308,10 @@ export async function login(user, password) {
 }
 
 export async function logout() {
+  clearTimeout(idleTimer);
+  jobs.clear();
+  taskLabels.clear();
+  store(activityKey, null);
   await Promise.all([admin.logout(), ext.logout()]);
 }
 
@@ -290,4 +361,21 @@ export function curl(method, url, body, { basic = false } = {}) {
   let cmd = `curl -X ${method} ${basic ? '-u "$IRIS_USER"' : '-H "Authorization: Bearer $TOKEN"'}`;
   if (body !== undefined) cmd += ` -H "Content-Type: application/json" -d '${JSON.stringify(redact(body)).replace(/'/g, "'\\''")}'`;
   return `${cmd} '${full}'`;
+}
+
+// Start after module initialization so restored sessions use the same expiry path as live sessions.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  const activity = () => {
+    if (!admin.loggedIn) return;
+    if (sessionSchedule(null, lastActivity).expired) return expireSession();
+    lastActivity = Date.now();
+    store(activityKey, lastActivity);
+  };
+  for (const name of ['pointerdown', 'pointermove', 'keydown']) document.addEventListener(name, activity, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { admin.keepAlive(); ext.keepAlive(); }
+  });
+  admin.schedule();
+  ext.schedule();
+  if (admin.loggedIn) { store(activityKey, lastActivity); scheduleIdle(); }
 }

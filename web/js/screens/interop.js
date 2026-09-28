@@ -164,7 +164,7 @@ function enableInterop(ns, reload) {
     run: async () => {
       const r = await admin.post('/v2/namespace/enable-interop', {}, { name: ns });
       if (r && r.GUID && r.State === 'Queued') {
-        const task = await waitAsync(r.GUID);
+        const task = await waitAsync(r.GUID, { label: `Enable Interoperability: ${ns}` });
         if (/fail|error|cancel/i.test(task.State)) throw new Error(task.FailureReason || `Task ${task.State}`);
         return task;
       }
