@@ -1,7 +1,8 @@
 // Small DOM toolkit. All text goes through textContent (never innerHTML) so log lines,
 // descriptions etc. coming from the server cannot inject markup.
-import { curl, redact } from './api.js';
+import { curl, redact, ext, onCall, PREFIX } from './api.js';
 import { verifiedChange, describeVerification } from './verify.js';
+import { changeCall, changeRecord, outcomeOf } from './changes.js';
 
 /** h('div.card#main', {onclick, title, dataset:{}}, child1, 'text', [children]) */
 export function h(tag, attrs, ...children) {
@@ -140,12 +141,45 @@ export function copy(text) {
   navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard'), () => toast('Copy failed', 'err'));
 }
 
+// ---------- change log ----------
+// Each confirmed change is recorded in the server's change log (changes.js) once it has run: the calls
+// it made (method and path, taken from the API console feed) and its outcome. Sending is fire-and-forget:
+// a log that cannot be written never delays or fails the change itself.
+let recordedChanges = 0;
+function sendChange(what, calls, outcome) {
+  recordedChanges++;
+  if (!ext.loggedIn) return;
+  try {
+    ext.request('POST', '/changes', { body: changeRecord(what, calls, outcome), quiet: true }).catch(() => {});
+  } catch { /* never let the log break a change */ }
+}
+
+/** Runs `fn()`, then records what it changed. `always`: also when it made no write call (a refused edit). */
+async function recorded(what, fn, outcome, { always = true } = {}) {
+  const calls = [];
+  const before = recordedChanges;
+  const stop = onCall((entry) => { const c = changeCall(entry, PREFIX); if (c) calls.push(c); });
+  let result;
+  try {
+    result = await fn();
+  } catch (e) {
+    stop();
+    // A nested applyVerified() has already recorded its own outcome. A refused stale edit wrote nothing but is recorded.
+    const failed = outcomeOf(null, e);
+    if (recordedChanges === before && (always || calls.length || failed.outcome === 'refused')) sendChange(what, calls, failed);
+    throw e;
+  }
+  stop();
+  if (recordedChanges === before && (always || calls.length)) sendChange(what, calls, outcome(result));
+  return result;
+}
+
 /**
- * Runs a change as a verified change (see verify.js) and reports the outcome as a toast.
- * `what` names the change in the message ("Task suspended").
+ * Runs a change as a verified change (see verify.js), reports the outcome as a toast and records it
+ * in the change log. `what` names the change in the message ("Task suspended").
  */
 export async function applyVerified(options, what) {
-  const outcome = await verifiedChange(options);
+  const outcome = await recorded(what, () => verifiedChange(options), (r) => outcomeOf(r));
   const [message, kind] = describeVerification(outcome, what);
   toast(message, kind);
   return outcome;
@@ -185,7 +219,8 @@ export function confirmAction({ title, message, call, danger = false, confirmLab
               let r;
               if (verify) r = (await applyVerified({ ...verify, write: run }, done || title)).result;
               else {
-                r = await run();
+                // Recorded as unverified, and only when it wrote something (the API explorer also sends reads here).
+                r = await recorded(done || title, run, () => ({ outcome: 'unverified' }), { always: false });
                 if (done) toast(done);
               }
               resolve(r === undefined ? true : r);

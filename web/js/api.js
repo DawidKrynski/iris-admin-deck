@@ -130,7 +130,8 @@ class Client {
     return this.refreshing;
   }
 
-  async request(method, path, { query, body } = {}) {
+  // quiet: a 401 does not end the UI session (a background call such as the change log must never sign anyone out).
+  async request(method, path, { query, body, quiet = false } = {}) {
     const url = `${this.base}${path}${buildQuery(query)}`;
     const started = performance.now();
     const gen = this.generation; // the session this request belongs to
@@ -155,7 +156,7 @@ class Client {
         res = await doFetch();
       } catch (e) {
         emit({ method, url, body, status: 401, ms: Math.round(performance.now() - started) });
-        window.dispatchEvent(new CustomEvent('session-expired'));
+        if (!quiet) window.dispatchEvent(new CustomEvent('session-expired'));
         throw e;
       }
     }
@@ -163,7 +164,7 @@ class Client {
     let payload = null;
     try { payload = text ? JSON.parse(text) : null; } catch { payload = { raw: text }; }
     emit({ method, url, body, status: res.status, ms: Math.round(performance.now() - started) });
-    if (res.status === 401) window.dispatchEvent(new CustomEvent('session-expired'));
+    if (res.status === 401 && !quiet) window.dispatchEvent(new CustomEvent('session-expired'));
     const st = payload && payload.status;
     if (!res.ok || (st && st.errors && st.errors.length)) {
       throw new ApiError(errorMessage(payload, res.status), res.status, payload);

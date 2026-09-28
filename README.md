@@ -128,7 +128,7 @@ Then open `http://<host>:<port>/admindeck/index.html`. The package creates two w
 | Interoperability | Productions per namespace: state, items with errors and queue counts, recent errors; start, update, recover, and stop after typing the production name. Enables Interoperability on a namespace that doesn't have it |
 | Language servers | External language servers (Python, Java, .NET gateways): state, start/stop, settings, create, delete, recent activity |
 | Logs & insights | Timeline, log viewer (current and rotated files), recurring problems, similar incidents |
-| Audit trail | Search audit records, turn individual audit events on or off, turn auditing on if it's off. Maintenance: IRISAUDIT size and date range, copy records to a namespace, purge records older than N days (never the newest ones; you type the number of records first) |
+| Audit trail | Search audit records, turn individual audit events on or off, turn auditing on if it's off. Maintenance: IRISAUDIT size and date range, copy records to a namespace, purge records older than N days (never the newest ones; you type the number of records first). Changes made here: every change made through Admin Deck, who made it, the calls and whether the read-back matched |
 | API explorer | All 190 paths (273 operations) from the 2026.2 OpenAPI spec, with an example body and a preview before sending |
 
 Ctrl+K opens a palette that finds screens, users, roles, web applications and tasks by name.
@@ -206,6 +206,8 @@ save if a field you changed was also changed by someone else since you opened th
 reads the object once more and tells you whether the fields match what you sent or which ones differ.
 Passwords and wallet values can't be read back, so for those you only get "accepted". Background operations
 are also reported as accepted, not read back, and the API explorer sends raw calls without any of this.
+Each change, including a refused or failed one, is recorded with its outcome in Audit trail, Changes made
+here (paths only, never request bodies); the IRIS security audit stays the authoritative record.
 
 This is not a lock. A change made in the few milliseconds between the re-read and the write is not caught.
 
@@ -256,12 +258,14 @@ browser ── same origin ──► IRIS web server
                                    ├── os        Embedded Python CPU / memory / disk metrics
                                    ├── search    IRIS Vector Search over log entries
                                    ├── backups   backup definitions, tasks and history (read-only)
-                                   └── interop   production status, items, queues, errors; start/stop/update/recover
+                                   ├── interop   production status, items, queues, errors; start/stop/update/recover
+                                   └── changes   log of changes made through Admin Deck, with their read-back outcome
 ```
 
 Changes go through `/api/admin/v2`, with one exception: Interoperability productions, which the SysAdmin API
 doesn't cover. Start, stop, update and recover call `Ens.Director`, and the server checks the caller's
-`%Admin_Operate` and `%Ens_ProductionRun` on every request. Everything else in the extension API only reads:
+`%Admin_Operate` and `%Ens_ProductionRun` on every request. The change log is written to `^AdminDeck("Changes")`
+(journaled, the newest 5000 entries). Everything else in the extension API only reads:
 log files from an allow-list in the manager directory, `SYS.ApplicationError`, `/proc`, backup history
 (`Backup.Task`) and the vector index. The front end is plain ES modules with no build step and no
 third-party runtime dependencies; IPM installs it as files. A small sampler (`AdminDeck.Metrics`) records a

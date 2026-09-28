@@ -2,6 +2,7 @@ import { admin, ext, waitAsync } from '../api.js';
 import { can } from '../app.js';
 import { h, page, table, tabs, load, modal, confirmAction, kv, badge, button, toolbar, clear, errorBox, toast, toastError } from '../ui.js';
 import { purgeCutoff, checkPurge, countLabel, auditRows } from '../retention.js';
+import { outcomeKind, changesCsv } from '../changes.js';
 
 const queryPath = (path, query) => `/api/admin${path}?${new URLSearchParams(query)}`;
 const isAsync = (r) => !!r && !Array.isArray(r) && !!(r.GUID || r.Id || r.id);
@@ -13,6 +14,7 @@ export default async function render(el, params) {
   el.append(page('Audit trail', null, status,
     tabs([{ id: 'records', label: 'Records', render: recordsTab },
       { id: 'events', label: 'Events', render: eventsTab },
+      can('Secure', 'Operate') ? { id: 'changes', label: 'Changes made here', render: changesTab } : null,
       can('Secure') ? { id: 'maintenance', label: 'Maintenance', render: maintenanceTab } : null].filter(Boolean), params[0])));
   statusPanel(status);
 }
@@ -171,6 +173,36 @@ async function recordDetails(row) {
   modal(`Audit record ${row.AuditIndex}`, content, { wide: true });
   try { clear(content, kv(await admin.get('/v2/security/audit/record', q))); }
   catch (e) { clear(content, errorBox(e)); }
+}
+
+// ---------- changes made through Admin Deck (AdminDeck.Changes) ----------
+const CHANGES_SHOWN = 1000;
+// Display only: the stored path stays encoded as sent.
+const readablePath = (path) => { try { return decodeURIComponent(path); } catch { return path; } };
+
+function changesTab(body) {
+  const list = h('div');
+  const reload = () => load(list, () => ext.get('/changes', { limit: CHANGES_SHOWN }), (rows) => table([
+    { key: 'time', label: 'Time (server)', width: '11rem' },
+    { key: 'user', label: 'User' },
+    { key: 'what', label: 'What' },
+    { key: 'outcome', label: 'Read back', render: (r) => h('span', { title: r.details || null }, badge(r.outcome, outcomeKind(r.outcome))) },
+    { key: 'calls', label: 'Calls', sort: (r) => (r.calls || []).map((c) => `${c.method} ${readablePath(c.path)}`).join(' '),
+      render: (r) => (r.calls || []).length ? h('div.calls', r.calls.map((c) => h('div', h('code', `${c.method} ${readablePath(c.path)}`)))) : '—' },
+  ], rows || [], { empty: 'No changes recorded yet.', pageSize: 50, placeholder: 'Filter by user, change, outcome or path…',
+    tools: [button('Refresh', reload, 'small'),
+      button('CSV', () => download('admin-deck-changes.csv', 'text/csv', changesCsv(rows)), 'small'),
+      button('JSON', () => download('admin-deck-changes.json', 'application/json', JSON.stringify(rows || [], null, 2)), 'small')] }));
+  body.append(h('p.muted.small', 'Changes made through Admin Deck, newest first, with the outcome of reading them back (hover a badge for details). ',
+    'Only the method and path of each call are kept, never a request body. The IRIS security audit (Records) remains the authoritative record: ',
+    'this log does not see changes made in SMP, by code or through the API directly.'), list);
+  reload();
+}
+
+function download(name, type, text) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  h('a', { href: url, download: name }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function eventsTab(body) {

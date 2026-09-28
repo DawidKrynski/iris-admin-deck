@@ -25,7 +25,8 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
                                   ├── /apperrors    application errors of all namespaces
                                   ├── /os           CPU, memory, disks
                                   ├── /metrics      last hour of 5 s samples (AdminDeck.Metrics)
-                                  └── /search       similar-incident search (IRIS Vector Search)
+                                  ├── /search       similar-incident search (IRIS Vector Search)
+                                  └── /changes      log of changes made through Admin Deck (AdminDeck.Changes)
 ```
 
 ### Frontend (`web/js`)
@@ -58,7 +59,11 @@ browser ──same origin──►  IRIS web server (:52773, published as :52785
 
 ### Extension (`src/AdminDeck`, `python/admindeck`)
 
-- `AdminDeck.REST.Dispatch`: routes. Every endpoint requires `%Admin_Operate:USE`.
+- `AdminDeck.REST.Dispatch`: routes. Every endpoint requires `%Admin_Operate:USE`, except `POST /changes` (any
+  signed-in user records their own change) and `GET /changes` (`%Admin_Secure:USE` or `%Admin_Operate:USE`).
+- `AdminDeck.Changes`: the change log in `^AdminDeck("Changes")`, journaled, newest 5000 entries. The UI records
+  each confirmed change after it ran (`applyVerified()` / `confirmAction()` in `ui.js`, fire-and-forget): what,
+  method and path of each call (no bodies), and the read-back outcome, including refused and failed ones.
 - `AdminDeck.Util`: allow-list of log files in the manager directory plus rotated `messages.old_*` /
   `alerts.old_*` files, checked by pattern and existence. Nothing else can be opened.
 - `AdminDeck.AppErrors`: application errors of every namespace via `SYS.ApplicationError`, limited to the newest

@@ -465,6 +465,22 @@ class ExtensionApi(unittest.TestCase):
                 self.assertIn("AdminDeck.zzNoSuchProduction", r.errors[0]["error"])
         self.assertEqual(self.ext.call("POST", f"/interop/{ns}/stop", body={}).status, 400)
 
+    def test_change_log(self):
+        what = f"Web application /{PREFIX.lower()} saved"
+        r = self.ext.ok("POST", "/changes", body={
+            "what": what, "outcome": "not-reflected", "details": "Description", "user": "someone-else",
+            "calls": [{"method": "PUT", "path": f"/api/admin/v2/web-app?name=%2F{PREFIX.lower()}&token=abc", "body": {"Password": "x"}}]})
+        entry = r.result
+        self.assertEqual(entry["user"], USER, "the username comes from the session, not the body")
+        self.assertEqual(entry["calls"], [{"method": "PUT", "path": f"/api/admin/v2/web-app?name=%2F{PREFIX.lower()}&token=***"}])
+        rows = self.ext.get("/changes", q=PREFIX, limit=5)
+        self.assertEqual(rows[0]["id"], entry["id"], "newest first")
+        self.assertEqual((rows[0]["what"], rows[0]["outcome"], rows[0]["details"]), (what, "not-reflected", "Description"))
+        self.assertNotIn("Password", json.dumps(rows))
+        self.assertTrue(all(row["user"] == USER for row in self.ext.get("/changes", user=USER, limit=20)))
+        self.assertEqual(self.ext.call("POST", "/changes", body={"what": "x", "outcome": "done"}).status, 400)
+        self.assertEqual(self.ext.call("POST", "/changes", body={"outcome": "verified"}).status, 400)
+
     def test_bad_input(self):
         self.assertEqual(self.ext.call("GET", "/logs/iris.cpf").status, 404)
         self.assertEqual(self.ext.call("GET", "/logs/messages.old_..").status, 404)
@@ -501,6 +517,11 @@ class Security(unittest.TestCase):
                 with self.subTest(path=path):
                     self.assertEqual(dev.call("GET", path).status, 403)
             self.assertEqual(dev.call("POST", "/interop/USER/stop", body={}).status, 403)
+            # The change log: anyone signed in records their own changes, only admins read the log.
+            recorded = dev.ok("POST", "/changes", body={"what": f"{PREFIX} developer change", "outcome": "failed", "details": "HTTP 403"}).result
+            self.assertEqual(recorded["user"], name)
+            self.assertEqual(dev.call("GET", "/changes").status, 403)
+            self.assertIn(recorded["id"], [row["id"] for row in Client("/admindeck/api").get("/changes", user=name)])
         finally:
             api.call("DELETE", "/v2/security/user", {"name": name})
 

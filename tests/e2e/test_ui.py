@@ -152,6 +152,18 @@ def run_ui_checks(page):
     print("ok   stale edit refused, nothing written")
     page.keyboard.press("Escape")
 
+    # The change log lists the verified edit (and the refused one) with the call it made.
+    page.wait_for_timeout(1000)  # the log is written in the background, after the toast
+    page.goto(f"{UI}#/audit/changes")
+    settled(page)
+    page.fill(".tab-body input.filter", "Application saved")
+    saved = page.locator(".tab-body tbody tr", has_text=f"PUT /api/admin/v2/web-app?name={APP}")
+    expect(saved.filter(has=page.locator(".badge.ok", has_text="verified")).first).to_be_visible(timeout=15_000)
+    assert "SuperUser" in saved.first.inner_text()
+    # Newest first: the refused edit came last
+    expect(page.locator(".tab-body tbody tr").first.locator(".badge.warn")).to_have_text("refused")
+    print("ok   change log lists the verified edit and the refused one")
+
     open_app(page)
     page.click(".modal button:has-text('Delete')")
     dialog = page.locator(".modal").last

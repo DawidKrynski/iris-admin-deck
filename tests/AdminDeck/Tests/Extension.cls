@@ -141,6 +141,86 @@ Method TestBackupClassification()
     do $$$AssertEquals($classmethod(b, "ParseTime", "junk"), "", "unparsable time")
 }
 
+/// Change log tests run on an empty log; the real one is set aside and put back afterwards.
+Method TestChangesStore()
+{
+    merge saved = ^AdminDeck("Changes")
+    kill ^AdminDeck("Changes")
+    try {
+        set body = {"what": "Web application /csp/zztest saved", "outcome": "verified", "details": "",
+            "calls": [{"method": "put", "path": "/api/admin/v2/web-app?name=%2Fcsp%2Fzztest&Password=p", "body": {"Password": "secret"}}],
+            "user": "Someone Else"}
+        do $$$AssertStatusOK(##class(AdminDeck.Changes).Record(body, "zzTester", .entry), "stored")
+        do $$$AssertEquals(entry.user, "zzTester", "user is the caller, not taken from the body")
+        do $$$AssertTrue($match(entry.time, "\d{4}-\d\d-\d\d \d\d:\d\d:\d\d"), "server timestamp")
+        do $$$AssertEquals(entry.calls.%Get(0).method, "PUT", "method normalised")
+        do $$$AssertEquals(entry.calls.%Get(0).path, "/api/admin/v2/web-app?name=%2Fcsp%2Fzztest&Password=***", "secret query value redacted")
+        do $$$AssertTrue('entry.calls.%Get(0).%IsDefined("body"), "request body not stored")
+        do $$$AssertTrue($get(^AdminDeck("Changes", "e", entry.id))'["secret", "body text not in the global")
+        do $$$AssertStatusOK(##class(AdminDeck.Changes).Record({"what": "POST /custom/update?token=zzT0k&n=1", "outcome": "failed", "details": "sent ClientSecret=zzS3c, password=zzP4ss"}, "zzTester", .masked), "free text stored")
+        do $$$AssertEquals(masked.what, "POST /custom/update?token=***&n=1", "token value in what masked")
+        do $$$AssertEquals(masked.details, "sent ClientSecret=***, password=***", "secret values in details masked")
+        set row = $get(^AdminDeck("Changes", "e", masked.id))
+        do $$$AssertTrue((row'["zzT0k")&&(row'["zzS3c")&&(row'["zzP4ss"), "no secret value in the global")
+        kill ^AdminDeck("Changes", "e", masked.id)
+        set ^AdminDeck("Changes", "count") = ^AdminDeck("Changes", "count") - 1
+        do $$$AssertStatusOK(##class(AdminDeck.Changes).Record({"what": "Task saved", "outcome": "refused", "details": "Description"}, "other"), "second entry, no calls")
+        set list = ##class(AdminDeck.Changes).List(10)
+        do $$$AssertEquals(list.%Size(), 2, "both listed")
+        do $$$AssertEquals(list.%Get(0).what, "Task saved", "newest first")
+        do $$$AssertEquals(##class(AdminDeck.Changes).List(10, "ZZTESTER").%Size(), 1, "filter by user, any case")
+        do $$$AssertEquals(##class(AdminDeck.Changes).List(10, "", "CSP/ZZ").%Get(0).user, "zzTester", "search what and paths")
+        do $$$AssertEquals(##class(AdminDeck.Changes).List(1).%Size(), 1, "limit respected")
+    } catch ex {
+        do $$$AssertStatusOK(ex.AsStatus(), "no error")
+    }
+    kill ^AdminDeck("Changes")
+    merge ^AdminDeck("Changes") = saved
+}
+
+Method TestChangesValidation()
+{
+    merge saved = ^AdminDeck("Changes")
+    kill ^AdminDeck("Changes")
+    set c = "AdminDeck.Changes"
+    do $$$AssertStatusNotOK($classmethod(c, "Record", [], "u"), "array body refused")
+    do $$$AssertStatusNotOK($classmethod(c, "Record", {"outcome": "verified"}, "u"), "what required")
+    do $$$AssertStatusNotOK($classmethod(c, "Record", {"what": "  ", "outcome": "verified"}, "u"), "blank what refused")
+    do $$$AssertStatusNotOK($classmethod(c, "Record", {"what": "x", "outcome": "fine"}, "u"), "unknown outcome refused")
+    do $$$AssertStatusNotOK($classmethod(c, "Record", {"what": "x", "outcome": "failed", "details": {"a": 1}}, "u"), "details must be text")
+    do $$$AssertStatusNotOK($classmethod(c, "Record", {"what": "x", "outcome": "failed", "calls": "PUT /x"}, "u"), "calls must be an array")
+    do $$$AssertStatusNotOK($classmethod(c, "Record", {"what": "x", "outcome": "failed", "calls": [{"method": "PUT", "path": "x"}]}, "u"), "path must start with /")
+    do $$$AssertStatusNotOK($classmethod(c, "Record", {"what": "x", "outcome": "failed", "calls": [{"method": "EVIL", "path": "/x"}]}, "u"), "unknown method refused")
+    do $$$AssertEquals($order(^AdminDeck("Changes", "e", "")), "", "nothing stored for invalid input")
+    // Sizes are capped, not refused: a change is never lost for a long message
+    set calls = []
+    for i = 1:1:15 { do calls.%Push({"method": "DELETE", "path": ("/x/"_i)}) }
+    set long = {"what": ($translate($justify("", 300), " ", "w")), "outcome": "failed",
+        "details": ("line1"_$char(10)_$translate($justify("", 900), " ", "d")), "calls": (calls)}
+    do $$$AssertStatusOK($classmethod(c, "Record", long, "u", .entry), "long entry stored")
+    do $$$AssertEquals($length(entry.what), 200, "what capped")
+    do $$$AssertEquals($length(entry.details), 500, "details capped")
+    do $$$AssertTrue(entry.details'[$char(10), "control characters removed")
+    do $$$AssertEquals(entry.calls.%Size(), 10, "at most 10 calls")
+    kill ^AdminDeck("Changes")
+    merge ^AdminDeck("Changes") = saved
+}
+
+Method TestChangesTrim()
+{
+    merge saved = ^AdminDeck("Changes")
+    kill ^AdminDeck("Changes")
+    do $$$AssertEquals(##class(AdminDeck.Changes).#KEEP, 5000, "5000 entries kept")
+    for i = 1:1:7 { do ##class(AdminDeck.Changes).Record({"what": ("change "_i), "outcome": "verified"}, "u", , 5) }
+    set list = ##class(AdminDeck.Changes).List(100)
+    do $$$AssertEquals(list.%Size(), 5, "trimmed to the limit")
+    do $$$AssertEquals(list.%Get(0).what, "change 7", "newest kept")
+    do $$$AssertEquals(list.%Get(4).what, "change 3", "oldest trimmed first")
+    do $$$AssertEquals(^AdminDeck("Changes", "count"), 5, "count follows the trim")
+    kill ^AdminDeck("Changes")
+    merge ^AdminDeck("Changes") = saved
+}
+
 /// Minimal production created by the Interoperability test and removed again by it.
 Parameter DEMOPRODUCTION = "AdminDeck.Tests.zzDemoProduction";
 

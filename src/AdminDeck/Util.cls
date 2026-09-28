@@ -62,4 +62,10 @@ ClassMethod CanOperate() As %Boolean
     quit $system.Security.Check("%Admin_Operate", "USE")
 }
 
+/// The change log may be read by whoever administers security or operates the instance.
+ClassMethod CanReadChanges() As %Boolean
+{
+    quit $system.Security.Check("%Admin_Secure", "USE") || ..CanOperate()
+}
+
 }

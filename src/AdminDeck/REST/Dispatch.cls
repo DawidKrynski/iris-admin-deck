@@ -1,6 +1,7 @@
 /// Extension REST API for IRIS Admin Deck, mounted at /admindeck/api (JWT auth).
-/// Covers what the SysAdmin API does not expose: log files, OS metrics, log similarity search, backup history
-/// and Interoperability productions (status, and start/stop/update/recover checked against %Ens_ProductionRun).
+/// Covers what the SysAdmin API does not expose: log files, OS metrics, log similarity search, backup history,
+/// Interoperability productions (status, and start/stop/update/recover checked against %Ens_ProductionRun)
+/// and the log of changes made through Admin Deck.
 /// Response envelope mirrors /api/admin: {"status":{"errors":[],"summary":""},"result":...}
 Class AdminDeck.REST.Dispatch Extends %CSP.REST
 {
@@ -28,6 +29,8 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
   <Route Url="/interop" Method="GET" Call="GetInterop"/>
   <Route Url="/interop/:namespace" Method="GET" Call="GetInteropNamespace"/>
   <Route Url="/interop/:namespace/:action" Method="POST" Call="InteropAction"/>
+  <Route Url="/changes" Method="POST" Call="RecordChange"/>
+  <Route Url="/changes" Method="GET" Call="ListChanges"/>
 </Routes>
 }
 
@@ -198,6 +201,30 @@ ClassMethod InteropAction(namespace As %String, action As %String) As %Status
     set sc = ##class(AdminDeck.Interop).Act(namespace, action, production, .result, .conflict)
     quit:$$$ISERR(sc) ..Fail(sc, $select(conflict: 409, $system.Status.GetErrorText(sc)["does not exist": 404, 1: 500))
     quit ..Reply(result)
+}
+
+/// Records a change the caller made through Admin Deck: {what, calls: [{method, path}], outcome, details}.
+/// Any signed-in user may record their own changes; the username is always $username, never from the body.
+ClassMethod RecordChange() As %Status
+{
+    set sc = $$$OK
+    try {
+        set body = $select($isobject(%request.Content) && %request.Content.Size: {}.%FromJSON(%request.Content), 1: "")
+    } catch ex {
+        set sc = $$$ERROR($$$GeneralError, "Request body must be JSON")
+    }
+    quit:$$$ISERR(sc) ..Fail(sc, 400)
+    set sc = ##class(AdminDeck.Changes).Record(body, $username, .entry)
+    quit:$$$ISERR(sc) ..Fail(sc, $select($system.Status.GetErrorText(sc)["busy": 500, 1: 400))
+    quit ..Reply(entry)
+}
+
+/// The change log, newest first. Reading other users' changes needs an admin privilege.
+ClassMethod ListChanges() As %Status
+{
+    quit:'##class(AdminDeck.Util).CanReadChanges() ..Forbidden("Requires %Admin_Secure:USE or %Admin_Operate:USE")
+    quit ..Reply(##class(AdminDeck.Changes).List(..Bound(%request.Get("limit", 200), 1, ##class(AdminDeck.Changes).#KEEP),
+        %request.Get("user"), %request.Get("q")))
 }
 
 /// --- helpers ---
