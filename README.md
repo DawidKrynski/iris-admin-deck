@@ -83,7 +83,8 @@ Then open `http://<host>:<port>/admindeck/index.html`. The package creates two w
 | Secrets & certificates | Wallet collections and secrets (write-only values), X.509 credentials with expiry, SSL/TLS configurations with a test, OAuth2 server definitions and client configurations |
 | Tasks | Run now, suspend/resume, edit, history, upcoming runs, suspend/resume the Task Manager itself |
 | Processes & locks | Processes (suspend, resume, terminate, broadcast), locks, CSP/web sessions |
-| Databases & system | Databases (create, edit, delete, mount/dismount, expand/compact/truncate, integrity check, which namespaces use each one), namespaces with global/routine/package mappings, journal files and a record browser (filter by global, PID or time; old and new value of each change; who last changed a global), devices, license, background jobs |
+| Databases & system | Databases (create, edit, delete, mount/dismount, expand/compact/truncate, integrity check, which namespaces use each one), namespaces with global/routine/package mappings, journal files and a record browser (filter by global, PID or time; old and new value of each change; who last changed a global), backups (last good backup per type, history, the tasks that run them), devices, license, background jobs |
+| Interoperability | Productions per namespace: state, items with errors and queue counts, recent errors; start, update, recover, and stop after typing the production name. Enables Interoperability on a namespace that doesn't have it |
 | Language servers | External language servers (Python, Java, .NET gateways): state, start/stop, settings, create, delete, recent activity |
 | Logs & insights | Timeline, log viewer (current and rotated files), recurring problems, similar incidents |
 | Audit trail | Search audit records, turn individual audit events on or off, turn auditing on if it's off. Maintenance: IRISAUDIT size and date range, copy records to a namespace, purge records older than N days (never the newest ones; you type the number of records first) |
@@ -146,6 +147,11 @@ or in a comment next to the workaround in `web/js/`.
 - External language servers: `PUT /v2/ext-lang-server` refuses an update without `Type` (`#40301`), although
   the spec needs it only on create. The list has no running state, so it takes one `activity` call per server,
   and `start` blocks until the process is up (about 10 s for Python) and returns its log as HTML.
+- Journal records: `maxRows` returns half of what you ask for (10 gives 5, 200 gives 100), `initialOffset` is
+  inclusive, and an unknown `matchOperator` or a column name in the wrong case returns an empty list instead
+  of an error. Every background call of the API writes its own bookkeeping (`^Api.Admin.Util.AsyncTaskD` in
+  IRISLOCALDATA) to the journal, so on a quiet instance most recent records are the API talking to itself;
+  the record browser hides them by default. `OldValue` exists only for changes made inside a transaction.
 - Wallet secret names are qualified with the collection: `<collection>.<secret>`.
 - `/api/admin` sends no CORS headers, so a UI has to be served by IRIS itself or through a same-origin proxy.
   That's why this one lives under `/admindeck` on the same web server.
@@ -201,11 +207,16 @@ browser ── same origin ──► IRIS web server
                                    ├── logs      Embedded Python log parser (current + rotated files)
                                    ├── apperrors application errors of all namespaces (SYS.ApplicationError)
                                    ├── os        Embedded Python CPU / memory / disk metrics
-                                   └── search    IRIS Vector Search over log entries
+                                   ├── search    IRIS Vector Search over log entries
+                                   ├── backups   backup definitions, tasks and history (read-only)
+                                   └── interop   production status, items, queues, errors; start/stop/update/recover
 ```
 
-All changes go through `/api/admin/v2`. The extension API only reads: log files from an allow-list in the
-manager directory, `SYS.ApplicationError`, `/proc`, and the vector index. The front end is plain ES modules
+Changes go through `/api/admin/v2`, with one exception: Interoperability productions, which the SysAdmin API
+doesn't cover. Start, stop, update and recover call `Ens.Director`, and the server checks the caller's
+`%Admin_Operate` and `%Ens_ProductionRun` on every request. Everything else in the extension API only reads:
+log files from an allow-list in the manager directory, `SYS.ApplicationError`, `/proc`, backup history
+(`Backup.Task`) and the vector index. The front end is plain ES modules
 with no build step and no third-party runtime dependencies; IPM installs it as files. A small sampler
 (`AdminDeck.Metrics`) records a sample every 5 seconds and keeps 720 of them, so the charts show the last
 hour as soon as you open them.

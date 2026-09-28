@@ -141,4 +141,103 @@ Method TestBackupClassification()
     do $$$AssertEquals($classmethod(b, "ParseTime", "junk"), "", "unparsable time")
 }
 
+/// Minimal production created by the Interoperability test and removed again by it.
+Parameter DEMOPRODUCTION = "AdminDeck.Tests.zzDemoProduction";
+
+Method TestInteropValidation()
+{
+    set i = "AdminDeck.Interop"
+    do $$$AssertTrue($classmethod(i, "ValidName", "My.Pkg.Production"), "class name accepted")
+    do $$$AssertTrue('$classmethod(i, "ValidName", "My.Pkg;kill ^x"), "injection refused")
+    do $$$AssertTrue('$classmethod(i, "ValidName", ""), "empty name refused")
+    do $$$AssertTrue('$classmethod(i, "ValidNamespace", "../USER"), "odd namespace refused")
+    do $$$AssertStatusNotOK($classmethod(i, "CheckNamespace", "ZZNOSUCHNAMESPACE"), "unknown namespace refused")
+    do $$$AssertStatusNotOK($classmethod(i, "CheckNamespace", "%SYS"), "%SYS has no Interoperability")
+    do $$$AssertEquals($classmethod(i, "StateName", 1), "Running", "state 1")
+    do $$$AssertEquals($classmethod(i, "StateName", 4), "Troubled", "state 4")
+    do $$$AssertStatusNotOK($classmethod(i, "Act", $namespace, "delete", ""), "unknown action refused")
+    set list = ##class(AdminDeck.Interop).Namespaces(), sys = 0
+    set it = list.%GetIterator()
+    while it.%GetNext(, .row) {
+        do $$$AssertTrue($extract(row.namespace)'="^", "no implicit namespaces: "_row.namespace)
+        set:row.namespace="%SYS" sys = 1
+    }
+    do $$$AssertTrue(sys, "%SYS listed")
+    set overview = ##class(AdminDeck.Interop).Overview(), it = overview.namespaces.%GetIterator()
+    do $$$AssertEquals(overview.%GetTypeOf("canRun"), "boolean", "canRun is a boolean")
+    while it.%GetNext(, .row) {
+        continue:'row.enabled
+        do $$$AssertTrue(row.%IsDefined("state") || row.%IsDefined("error"), row.namespace_": state or error reported")
+        do:row.%IsDefined("state") $$$AssertEquals(row.%GetTypeOf("needsUpdate"), "boolean", row.namespace_": needsUpdate stays a boolean")
+    }
+}
+
+/// Start, update and stop a throw-away production through AdminDeck.Interop.Act, reading the state back each time.
+/// Skipped when this namespace has no Interoperability or already runs another production.
+Method TestInteropProductionLifecycle()
+{
+    set ns = $namespace, name = ..#DEMOPRODUCTION
+    if '##class(%EnsembleMgr).IsEnsembleNamespace(ns) {
+        do $$$LogMessage("Interoperability is not enabled in "_ns_": lifecycle test skipped")
+        quit
+    }
+    do ##class(Ens.Director).GetProductionStatus(.running, .state, 2, 1)
+    if (state = 1) && (running '= name) {
+        do $$$LogMessage("Production "_running_" is running in "_ns_": lifecycle test skipped")
+        quit
+    }
+    // Starting a production makes it the namespace's "last production": restored at the end
+    set hadLast = $data(^Ens.Configuration("csp", "LastProduction"), last)
+    do $$$AssertStatusOK(..CreateDemoProduction(), "demo production compiled")
+    set sc = ##class(AdminDeck.Interop).Act(ns, "start", name, .result)
+    do $$$AssertStatusOK(sc, "start")
+    do $$$AssertEquals($select($isobject(result): result.state, 1: ""), "Running", "read back: running")
+    set status = ##class(AdminDeck.Interop).Status(ns, 1)
+    do $$$AssertEquals(status.production, name, "status names the production")
+    do $$$AssertEquals(status.items.%Get(0).name, "Demo.Service", "items listed")
+    do $$$AssertTrue($isobject(status.queues) && $isobject(status.recentErrors), "queues and errors reported")
+    do $$$AssertStatusOK(##class(AdminDeck.Interop).Act(ns, "update", name, .result), "update")
+    do $$$AssertEquals(result.needsUpdate, 0, "read back: nothing left to update")
+    // Stop / update / recover act only on the production the caller expects to be current
+    set sc = ##class(AdminDeck.Interop).Act(ns, "stop", "AdminDeck.Tests.zzOtherProduction", .result, .conflict)
+    do $$$AssertStatusNotOK(sc, "stop of another production refused")
+    do $$$AssertTrue(conflict, "refusal reported as a conflict")
+    do $$$AssertTrue($system.Status.GetErrorText(sc)[name, "the message names the production that runs")
+    do $$$AssertStatusNotOK(##class(AdminDeck.Interop).Act(ns, "recover", "AdminDeck.Tests.zzOtherProduction", .result, .conflict), "recover of another production refused")
+    do $$$AssertStatusNotOK(##class(AdminDeck.Interop).Act(ns, "stop", "", .result), "stop without a production name refused")
+    do ##class(Ens.Director).GetProductionStatus(.running, .state, 2, 1)
+    do $$$AssertEquals(+state, 1, "still running after the refusals")
+    do $$$AssertStatusOK(##class(AdminDeck.Interop).Act(ns, "stop", name, .result, .conflict), "stop")
+    do $$$AssertTrue('conflict, "no conflict for the expected production")
+    do $$$AssertEquals($select($isobject(result): result.state, 1: ""), "Stopped", "read back: stopped")
+    do $$$AssertStatusNotOK(##class(AdminDeck.Interop).Act(ns, "stop", name, .result, .conflict), "stop when nothing runs refused")
+    do $$$AssertStatusNotOK(##class(AdminDeck.Interop).Act(ns, "start", "AdminDeck.Tests.zzNoSuchProduction", .result), "missing class refused")
+    do $$$AssertStatusNotOK(##class(AdminDeck.Interop).Act(ns, "start", "AdminDeck.Util", .result), "non-production class refused")
+    do ..DeleteDemoProduction()
+    if hadLast#10 { set ^Ens.Configuration("csp", "LastProduction") = last } else { kill ^Ens.Configuration("csp", "LastProduction") }
+}
+
+ClassMethod CreateDemoProduction() As %Status
+{
+    set name = ..#DEMOPRODUCTION
+    quit:##class(%Dictionary.CompiledClass).%ExistsId(name) $$$OK
+    set cls = ##class(%Dictionary.ClassDefinition).%New(name)
+    set cls.Super = "Ens.Production", cls.ProcedureBlock = 1
+    set x = ##class(%Dictionary.XDataDefinition).%New()
+    set x.Name = "ProductionDefinition"
+    do x.Data.Write("<Production Name="""_name_""" LogGeneralTraceEvents=""false""><Description>Admin Deck test production</Description>"
+        _"<ActorPoolSize>1</ActorPoolSize><Item Name=""Demo.Service"" ClassName=""EnsLib.Testing.Service"" PoolSize=""0"" Enabled=""true""/></Production>")
+    do cls.XDatas.Insert(x)
+    set sc = cls.%Save()
+    quit:$$$ISERR(sc) sc
+    quit $system.OBJ.Compile(name, "ck-d")
+}
+
+ClassMethod DeleteDemoProduction()
+{
+    set name = ..#DEMOPRODUCTION
+    do $system.OBJ.Delete(name, "-d")
+    do ##class(Ens.Config.Production).%DeleteId(name)
+}
+
 }

@@ -1,5 +1,6 @@
 /// Extension REST API for IRIS Admin Deck, mounted at /admindeck/api (JWT auth).
-/// Covers what the SysAdmin API does not expose: log files, OS metrics, log similarity search and backup history.
+/// Covers what the SysAdmin API does not expose: log files, OS metrics, log similarity search, backup history
+/// and Interoperability productions (status, and start/stop/update/recover checked against %Ens_ProductionRun).
 /// Response envelope mirrors /api/admin: {"status":{"errors":[],"summary":""},"result":...}
 Class AdminDeck.REST.Dispatch Extends %CSP.REST
 {
@@ -24,6 +25,9 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
   <Route Url="/metrics" Method="GET" Call="GetMetrics"/>
   <Route Url="/apperrors" Method="GET" Call="GetAppErrors"/>
   <Route Url="/backups" Method="GET" Call="GetBackups"/>
+  <Route Url="/interop" Method="GET" Call="GetInterop"/>
+  <Route Url="/interop/:namespace" Method="GET" Call="GetInteropNamespace"/>
+  <Route Url="/interop/:namespace/:action" Method="POST" Call="InteropAction"/>
 </Routes>
 }
 
@@ -142,6 +146,60 @@ ClassMethod GetBackups() As %Status
     quit ..Reply(summary)
 }
 
+/// Interoperability: every namespace, and for those with Interoperability enabled the production state.
+ClassMethod GetInterop() As %Status
+{
+    quit:'##class(AdminDeck.Util).CanOperate() ..Forbidden()
+    set sc = $$$OK
+    try {
+        set overview = ##class(AdminDeck.Interop).Overview()
+    } catch ex {
+        set sc = ex.AsStatus()
+    }
+    quit:$$$ISERR(sc) ..Fail(sc)
+    quit ..Reply(overview)
+}
+
+/// Production of one namespace with its items, queues and recent errors.
+ClassMethod GetInteropNamespace(namespace As %String) As %Status
+{
+    quit:'##class(AdminDeck.Util).CanOperate() ..Forbidden()
+    set sc = ##class(AdminDeck.Interop).CheckNamespace(namespace)
+    quit:$$$ISERR(sc) ..Fail(sc, 404)
+    try {
+        set status = ##class(AdminDeck.Interop).Status(namespace, 1)
+        do status.%Set("canRun", ##class(AdminDeck.Interop).CanRun(), "boolean")
+    } catch ex {
+        set sc = ex.AsStatus()
+    }
+    quit:$$$ISERR(sc) ..Fail(sc)
+    quit ..Reply(status)
+}
+
+/// Start, stop, update or recover the production of a namespace. The body names the production:
+/// {"production": "<class>"} — the one to start, or the one expected to be current for stop / update / recover
+/// (409 Conflict when another production is current by then).
+/// Privileges are checked here and again in AdminDeck.Interop.Act; the reply is the state read back afterwards.
+ClassMethod InteropAction(namespace As %String, action As %String) As %Status
+{
+    quit:'##class(AdminDeck.Interop).CanRun() ..Forbidden("Requires %Admin_Operate:USE and %Ens_ProductionRun:USE")
+    quit:'$listfind($listbuild("start", "stop", "update", "recover"), action) ..Fail($$$ERROR($$$GeneralError, "Unknown action "_action), 400)
+    set sc = ##class(AdminDeck.Interop).CheckNamespace(namespace)
+    quit:$$$ISERR(sc) ..Fail(sc, 404)
+    set production = ""
+    try {
+        set body = $select($isobject(%request.Content) && %request.Content.Size: {}.%FromJSON(%request.Content), 1: {})
+        set production = body.%Get("production")
+    } catch ex {
+        set sc = $$$ERROR($$$GeneralError, "Request body must be JSON")
+    }
+    quit:$$$ISERR(sc) ..Fail(sc, 400)
+    quit:'##class(AdminDeck.Interop).ValidName(production)&&'((action="recover")&&(production="")) ..Fail($$$ERROR($$$GeneralError, "Body must name the production class: {""production"": ""My.Production""}"_$select(action="start": "", 1: " (the production expected to be current)")), 400)
+    set sc = ##class(AdminDeck.Interop).Act(namespace, action, production, .result, .conflict)
+    quit:$$$ISERR(sc) ..Fail(sc, $select(conflict: 409, $system.Status.GetErrorText(sc)["does not exist": 404, 1: 500))
+    quit ..Reply(result)
+}
+
 /// --- helpers ---
 ClassMethod Bound(value, min As %Integer, max As %Integer) As %Integer
 {
@@ -157,15 +215,15 @@ ClassMethod Reply(result) As %Status
 
 ClassMethod Fail(sc As %Status, httpStatus As %Integer = 500) As %Status
 {
-    set %response.Status = $case(httpStatus, 400: ..#HTTP400BADREQUEST, 403: ..#HTTP403FORBIDDEN, 404: ..#HTTP404NOTFOUND, : ..#HTTP500INTERNALSERVERERROR)
+    set %response.Status = $case(httpStatus, 400: ..#HTTP400BADREQUEST, 403: ..#HTTP403FORBIDDEN, 404: ..#HTTP404NOTFOUND, 409: ..#HTTP409CONFLICT, : ..#HTTP500INTERNALSERVERERROR)
     set msg = $system.Status.GetErrorText(sc)
     write {"status": {"errors": [{"error": (msg)}], "summary": (msg)}, "result": null}.%ToJSON()
     quit $$$OK
 }
 
-ClassMethod Forbidden() As %Status
+ClassMethod Forbidden(message As %String = "Requires %Admin_Operate:USE") As %Status
 {
-    quit ..Fail($$$ERROR($$$GeneralError, "Requires %Admin_Operate:USE"), 403)
+    quit ..Fail($$$ERROR($$$GeneralError, message), 403)
 }
 
 ClassMethod NotFound(what As %String) As %Status

@@ -432,6 +432,39 @@ class ExtensionApi(unittest.TestCase):
             self.assertTrue(row["ok"] and row["type"] == kind)
         self.assertIsInstance(b["lastFull"]["recorded"], bool)
 
+    def test_interop_overview(self):
+        o = self.ext.get("/interop")
+        self.assertIsInstance(o["canRun"], bool)
+        names = {n["namespace"]: n for n in o["namespaces"]}
+        self.assertFalse(names["%SYS"]["enabled"])
+        for n in o["namespaces"]:
+            self.assertIsInstance(n["enabled"], bool)
+            if n["enabled"] and "error" not in n:
+                self.assertIn(n["state"], ["Running", "Stopped", "Suspended", "Troubled", "NetworkStopped", "Unknown"])
+                self.assertIsInstance(n["needsUpdate"], bool)
+                detail = self.ext.get(f"/interop/{n['namespace']}")
+                self.assertTrue({"items", "queues", "recentErrors", "productions", "canRun"} <= set(detail))
+
+    def test_interop_bad_input(self):
+        self.assertEqual(self.ext.call("GET", "/interop/ZZNOSUCHNAMESPACE").status, 404)
+        self.assertEqual(self.ext.call("POST", "/interop/%25SYS/start", body={"production": "X.Y"}).status, 404)
+        enabled = [n["namespace"] for n in self.ext.get("/interop")["namespaces"] if n["enabled"]]
+        if not enabled:
+            self.skipTest("no namespace with Interoperability")
+        ns = enabled[0]
+        self.assertEqual(self.ext.call("POST", f"/interop/{ns}/delete", body={}).status, 400)
+        self.assertEqual(self.ext.call("POST", f"/interop/{ns}/start", body={}).status, 400)
+        self.assertEqual(self.ext.call("POST", f"/interop/{ns}/start", body={"production": "x;kill ^y"}).status, 400)
+        self.assertEqual(self.ext.call("POST", f"/interop/{ns}/start", body={"production": "AdminDeck.zzNoSuchProduction"}).status, 404)
+        # Stop / update / recover name the production the caller expects; any other one is a conflict, never acted on.
+        for action in ["stop", "update", "recover"]:
+            with self.subTest(action=action):
+                self.assertEqual(self.ext.call("POST", f"/interop/{ns}/{action}", body={"production": "x;kill ^y"}).status, 400)
+                r = self.ext.call("POST", f"/interop/{ns}/{action}", body={"production": "AdminDeck.zzNoSuchProduction"})
+                self.assertEqual(r.status, 409)
+                self.assertIn("AdminDeck.zzNoSuchProduction", r.errors[0]["error"])
+        self.assertEqual(self.ext.call("POST", f"/interop/{ns}/stop", body={}).status, 400)
+
     def test_bad_input(self):
         self.assertEqual(self.ext.call("GET", "/logs/iris.cpf").status, 404)
         self.assertEqual(self.ext.call("GET", "/logs/messages.old_..").status, 404)
@@ -464,9 +497,27 @@ class Security(unittest.TestCase):
         try:
             dev = Client("/admindeck/api", name, "zzT3st!pass")
             self.assertTrue(dev.token, "developer can sign in")
-            for path in ["/os", "/logs/files", "/logs/messages", "/apperrors", "/search/status", "/backups"]:
+            for path in ["/os", "/logs/files", "/logs/messages", "/apperrors", "/search/status", "/backups", "/interop", "/interop/USER"]:
                 with self.subTest(path=path):
                     self.assertEqual(dev.call("GET", path).status, 403)
+            self.assertEqual(dev.call("POST", "/interop/USER/stop", body={}).status, 403)
+        finally:
+            api.call("DELETE", "/v2/security/user", {"name": name})
+
+    def test_production_actions_require_ens_production_run(self):
+        # %Operator may read production status (%Admin_Operate) but not start or stop one (%Ens_ProductionRun).
+        api = Client("/api/admin")
+        name = f"{PREFIX}Op"
+        api.ok("POST", "/v2/security/user", {"name": name}, {"User": {"Roles": ["%Operator"], "Enabled": True, "ChangePassword": False}, "Password": "zzT3st!pass"})
+        try:
+            op = Client("/admindeck/api", name, "zzT3st!pass")
+            overview = op.ok("GET", "/interop").result
+            self.assertFalse(overview["canRun"])
+            for action in ["start", "stop", "update", "recover"]:
+                with self.subTest(action=action):
+                    r = op.call("POST", f"/interop/USER/{action}", body={"production": "AdminDeck.zzNoSuchProduction"})
+                    self.assertEqual(r.status, 403)
+                    self.assertIn("%Ens_ProductionRun", r.errors[0]["error"])
         finally:
             api.call("DELETE", "/v2/security/user", {"name": name})
 

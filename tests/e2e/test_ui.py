@@ -16,7 +16,7 @@ BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:52785").rstrip("
 UI = f"{BASE}/admindeck/index.html"
 APP = f"/zzuitest-{os.getpid()}"
 SOURCES = ["messages.log", "alerts.log", "System Monitor", "Journal log", "Application errors", "Audit", "Task Manager"]
-SCREENS = ["dashboard", "webapps", "explorer", "users", "roles", "secrets", "tasks", "processes", "system", "languages", "status", "logs", "audit"]
+SCREENS = ["dashboard", "webapps", "explorer", "users", "roles", "secrets", "tasks", "processes", "system", "languages", "interop", "status", "logs", "audit"]
 
 
 def api(method, path, body=None):
@@ -175,6 +175,22 @@ def run_ui_checks(page):
     if never:
         assert "No backup has run on this instance" in attention, attention
     print(f"ok   backups tab ({'no backup recorded' if never else 'history shown'}) and dashboard item")
+
+    # 7. Interoperability: every enabled namespace has a card with its production state, or enabling is offered.
+    page.goto(f"{UI}#/interop")
+    settled(page)
+    cards = page.locator("main .card h2")
+    text = page.locator("main").inner_text()
+    assert cards.count() > 0, text[:300]
+    assert "No namespace has Interoperability enabled" in text or any(
+        s in text for s in ["Running", "Stopped", "Suspended", "Troubled"]), text[:300]
+    if page.locator("main .card:has(h2:has-text('USER')) button:has-text('Open')").count():
+        page.click("main .card:has(h2:has-text('USER')) button:has-text('Open')")
+        page.wait_for_url("**#/interop/USER")
+        settled(page)
+        assert page.locator("main .error-box").count() == 0
+        assert "Items" in page.locator("main").inner_text() or "ITEMS" in page.locator("main").inner_text()
+    print("ok   interoperability screen")
 
 
 if __name__ == "__main__":
