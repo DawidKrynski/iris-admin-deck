@@ -35,7 +35,7 @@ Details and fixes:
 - The metrics sampler keeps its buffer in IRISTEMP (not journaled) and starts with the container.
 
 Running it:
-- A prebuilt image on ghcr.io for each release tag (amd64 and arm64):
+- A prebuilt image on ghcr.io for each release tag (amd64):
   `docker run -d -p 127.0.0.1:52785:52773 ghcr.io/dawidkrynski/iris-admin-deck`.
 - `ADMINDECK_PORT` picks the local port for Docker Compose.
 - The demo data contains a small incident to follow (README, "A morning on call"): database REPORTS

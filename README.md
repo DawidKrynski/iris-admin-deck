@@ -66,7 +66,7 @@ Steps 4 and 5 also work on the public demo (REPORTS and the Sales export task ar
 docker run -d -p 127.0.0.1:52785:52773 ghcr.io/dawidkrynski/iris-admin-deck
 ```
 
-An image is published for each release tag, for amd64 and arm64. The command uses `latest`;
+An image is published for each release tag, for amd64. The command uses `latest`;
 use a release tag instead to keep a specific version, for example `:v1.0.1`.
 Open <http://localhost:52785/admindeck/index.html> and sign in with `SuperUser` / `SYS`.
 That login is for the local demo only; change the passwords for anything else.
