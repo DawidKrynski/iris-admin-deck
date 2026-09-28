@@ -163,6 +163,19 @@ def run_ui_checks(page):
     page.wait_for_selector(".journal-records .journal-status:has-text('found')", timeout=60_000)
     print("ok   journal explorer: records, details, who changed")
 
+    # 6. Backups: the tab states the facts of the backup history, and the dashboard agrees with it.
+    page.goto(f"{UI}#/system/backups")
+    settled(page)
+    text = page.locator("main").inner_text()
+    assert "FullAllDatabases" in text, "backup definitions listed"
+    never = "No backup has run on this instance" in text
+    page.goto(f"{UI}#/dashboard")
+    page.wait_for_selector(".card:has(h2:has-text('Needs attention')) ul, .card:has(h2:has-text('Needs attention')) .empty-state", timeout=30_000)
+    attention = page.locator(".card:has(h2:has-text('Needs attention'))").inner_text()
+    if never:
+        assert "No backup has run on this instance" in attention, attention
+    print(f"ok   backups tab ({'no backup recorded' if never else 'history shown'}) and dashboard item")
+
 
 if __name__ == "__main__":
     main()

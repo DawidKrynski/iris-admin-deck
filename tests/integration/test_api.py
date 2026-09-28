@@ -419,6 +419,19 @@ class ExtensionApi(unittest.TestCase):
         for e in errors:
             self.assertTrue({"namespace", "ts", "number", "message"} <= set(e))
 
+    def test_backups(self):
+        b = self.ext.get("/backups", limit=10)
+        self.assertTrue({"definitions", "scheduled", "history", "lastSuccessful", "lastFull"} <= set(b))
+        self.assertIn("FullAllDatabases", [d["name"] for d in b["definitions"]])
+        self.assertLessEqual(len(b["history"]), 10)
+        for row in b["history"]:
+            self.assertTrue({"type", "time", "status", "ok"} <= set(row))
+        for task in b["scheduled"]:
+            self.assertTrue(task["taskClass"].startswith("%SYS.Task.Backup"))
+        for kind, row in b["lastSuccessful"].items():
+            self.assertTrue(row["ok"] and row["type"] == kind)
+        self.assertIsInstance(b["lastFull"]["recorded"], bool)
+
     def test_bad_input(self):
         self.assertEqual(self.ext.call("GET", "/logs/iris.cpf").status, 404)
         self.assertEqual(self.ext.call("GET", "/logs/messages.old_..").status, 404)
@@ -451,7 +464,7 @@ class Security(unittest.TestCase):
         try:
             dev = Client("/admindeck/api", name, "zzT3st!pass")
             self.assertTrue(dev.token, "developer can sign in")
-            for path in ["/os", "/logs/files", "/logs/messages", "/apperrors", "/search/status"]:
+            for path in ["/os", "/logs/files", "/logs/messages", "/apperrors", "/search/status", "/backups"]:
                 with self.subTest(path=path):
                     self.assertEqual(dev.call("GET", path).status, 403)
         finally:

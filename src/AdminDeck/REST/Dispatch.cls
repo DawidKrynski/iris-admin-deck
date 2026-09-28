@@ -1,5 +1,5 @@
 /// Extension REST API for IRIS Admin Deck, mounted at /admindeck/api (JWT auth).
-/// Covers what the SysAdmin API does not expose: log files, OS metrics and log similarity search.
+/// Covers what the SysAdmin API does not expose: log files, OS metrics, log similarity search and backup history.
 /// Response envelope mirrors /api/admin: {"status":{"errors":[],"summary":""},"result":...}
 Class AdminDeck.REST.Dispatch Extends %CSP.REST
 {
@@ -23,6 +23,7 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
   <Route Url="/os" Method="GET" Call="GetOS"/>
   <Route Url="/metrics" Method="GET" Call="GetMetrics"/>
   <Route Url="/apperrors" Method="GET" Call="GetAppErrors"/>
+  <Route Url="/backups" Method="GET" Call="GetBackups"/>
 </Routes>
 }
 
@@ -124,6 +125,21 @@ ClassMethod GetAppErrors() As %Status
     }
     quit:$$$ISERR(sc) ..Fail(sc)
     quit ..Reply(errors)
+}
+
+/// Backup definitions, backup tasks and backup history (read-only).
+ClassMethod GetBackups() As %Status
+{
+    quit:'##class(AdminDeck.Util).CanOperate() ..Forbidden()
+    // A failed read is reported as an error, never as "no backups".
+    set sc = $$$OK
+    try {
+        set summary = ##class(AdminDeck.Backups).Summary(..Bound(%request.Get("limit", 200), 1, 2000))
+    } catch ex {
+        set sc = ex.AsStatus()
+    }
+    quit:$$$ISERR(sc) ..Fail(sc)
+    quit ..Reply(summary)
 }
 
 /// --- helpers ---

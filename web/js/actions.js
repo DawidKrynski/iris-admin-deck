@@ -21,6 +21,31 @@ export function loginFailureBursts(rows, min = 5) {
   return new Map([...counts].filter(([, n]) => n >= min));
 }
 
+/** Days without a successful backup after which the dashboard asks for attention. */
+export const BACKUP_MAX_AGE_DAYS = 7;
+
+/**
+ * Backup finding from GET /admindeck/api/backups (history newest first, rows {ok, ageDays, type, time};
+ * lastSuccessful {type: row} computed by the server over the whole history, which `history` may cut short):
+ *   null                                  a successful backup ran within `maxDays` (or its age is unknown)
+ *   {never: true, failed}                 no successful backup is recorded; `failed` = failed runs recorded
+ *   {never: false, days, type, time}      the newest successful backup is older than `maxDays`
+ * `lastFailed` is added when the newest recorded backup run did not succeed.
+ */
+export function backupFinding(summary, maxDays = BACKUP_MAX_AGE_DAYS) {
+  const history = summary && Array.isArray(summary.history) ? summary.history : [];
+  // The newest successful run of each type; only a server without lastSuccessful falls back to the (limited) list.
+  const perType = summary && summary.lastSuccessful && typeof summary.lastSuccessful === 'object' ? Object.values(summary.lastSuccessful) : null;
+  const ok = (perType || history).filter((r) => r && r.ok);
+  const lastFailed = history.length && !history[0].ok ? history[0] : null;
+  if (!ok.length) return { never: true, failed: history.length, lastFailed };
+  const ages = ok.map((r) => r.ageDays).filter((d) => typeof d === 'number');
+  if (!ages.length) return lastFailed ? { never: false, days: null, lastFailed } : null;
+  const newest = ok.find((r) => r.ageDays === Math.min(...ages));
+  if (newest.ageDays > maxDays) return { never: false, days: newest.ageDays, type: newest.type, time: newest.time, lastFailed };
+  return lastFailed ? { never: false, days: newest.ageDays, type: newest.type, time: newest.time, lastFailed } : null;
+}
+
 // ---------- presenting the next step ----------
 /** Quiet group of next steps placed at the end of an item line; nothing when there is none. */
 export function nextSteps(...steps) {

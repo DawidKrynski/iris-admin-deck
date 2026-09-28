@@ -1,4 +1,4 @@
-import { admin, findInList, waitAsync, ApiError } from '../api.js';
+import { admin, ext, findInList, waitAsync, ApiError } from '../api.js';
 import { can } from '../app.js';
 import { h, page, table, tabs, load, modal, confirmAction, applyVerified, objectForm, diff, kv, badge, fmtBytes, button, toolbar, clear, errorBox, toast, toastError, apiCallPreview, icon, loading } from '../ui.js';
 import { RECORD_TYPES, PAGE_SIZE, conditions, recordsQuery, refine, nextOffset, globalRef, recordValues } from '../journal.js';
@@ -52,6 +52,7 @@ export default async function render(el, params) {
       { id: 'databases', label: 'Databases', render: databasesTab },
       { id: 'namespaces', label: 'Namespaces', render: namespacesTab },
       { id: 'journal', label: 'Journal', render: journalTab },
+      { id: 'backups', label: 'Backups', render: backupsTab },
       { id: 'devices', label: 'Devices', render: devicesTab },
       { id: 'license', label: 'License', render: licenseTab },
       { id: 'jobs', label: 'Background jobs', render: jobsTab },
@@ -720,6 +721,65 @@ function deviceSettingsEdit(current) {
     }, 'Device settings saved');
     deviceSettings();
   } }] });
+}
+
+// Backups (read-only): the history IRIS records for backup runs, the Task Manager tasks that run backups and the
+// backup definitions they use. The SysAdmin API reports only "last backup", so this comes from the extension.
+const BACKUP_TYPES = ['Full', 'Incremental', 'Cumulative'];
+const shortClass = (c) => String(c || '').replace(/^%SYS\.Task\./, '');
+function backupsTab(body) {
+  const reload = () => load(body, () => ext.get('/backups'), (b) => {
+    const last = b.lastSuccessful || {};
+    const types = [...BACKUP_TYPES, ...(last.External ? ['External'] : [])];
+    const tasksLink = can('Operate', 'Task') ? h('a', { href: '#/tasks' }, 'Tasks') : 'Tasks';
+    return [
+      toolbar(button('Refresh', reload)),
+      h('div.grid.stats', types.map((t) => {
+        const r = last[t];
+        return h('div.card', h('div.stat-label', `Last ${t.toLowerCase()} backup`),
+          h('div.stat-value', r ? r.time : 'Never'),
+          h('div.stat-sub', r ? `${typeof r.ageDays === 'number' ? (r.ageDays === 0 ? 'today' : `${r.ageDays} d ago`) : ''} ${r.status ? `· ${r.status}` : ''}` : 'no successful run recorded'));
+      })),
+      b.history.length ? null : h('div.card', { style: { marginTop: '16px' } },
+        h('h2', 'No backup has run on this instance'),
+        h('p', 'IRIS records every run of its backup tasks here (and external backups registered with ',
+          h('code', 'Backup.General.ExternalSetHistory()'), '). Nothing is recorded yet.'),
+        h('p', 'To schedule one: open ', tasksLink, ', create a task with task class ', h('code', '%SYS.Task.BackupAllDatabases'),
+          ' (or ', h('code', 'BackupFullDatabaseList'), ' / ', h('code', 'BackupIncrementDatabaseList'), ' / ', h('code', 'BackupCumulativeDatabaseList'),
+          ' for the databases in the backup list) in namespace %SYS, choose a schedule and run it once. The backup files go to the device of the matching definition below.'),
+        h('p.muted.small', 'In a container, write backups to a mounted volume: a backup that stays inside the container is lost with it.')),
+      h('h3', 'Backup tasks in the Task Manager'),
+      table([
+        { key: 'name', label: 'Task' },
+        { key: 'taskClass', label: 'Type', render: (r) => shortClass(r.taskClass) },
+        { key: 'suspended', label: 'State', render: (r) => (r.suspended ? badge('Suspended', 'warn') : badge('Scheduled', 'ok')) },
+        { key: 'lastFinished', label: 'Last finished', render: (r) => r.lastFinished || '—' },
+        // Status is the %OnTask result (1 = success, negative = job error); Error may also hold scheduling notes.
+        { key: 'status', label: 'Last result', render: (r) => (!r.lastFinished ? '—' : String(r.status) === '1' ? badge('OK', 'ok')
+          : h('span', { title: r.error || '' }, badge('Error', 'err'))) },
+        { key: 'nextRun', label: 'Next run' },
+      ], b.scheduled, { filter: false, empty: 'No Task Manager task runs a backup.',
+        onRow: can('Operate', 'Task') ? (r) => { location.hash = `#/tasks/${r.id}`; } : null }),
+      h('h3', 'Backup history'),
+      table([
+        { key: 'time', label: 'Time' },
+        { key: 'type', label: 'Type' },
+        { key: 'status', label: 'Status', render: (r) => badge(r.status || '—', r.ok ? 'ok' : 'err') },
+        { key: 'databases', label: 'Databases', render: (r) => h('span.small', r.databases || '') },
+        { key: 'logFile', label: 'Log file', render: (r) => h('code.small', r.logFile || '') },
+      ], b.history, { empty: 'No backup recorded.', pageSize: 50 }),
+      h('h3', 'Backup definitions'),
+      table([
+        { key: 'name', label: 'Definition' }, { key: 'type', label: 'Type' }, { key: 'device', label: 'Device' },
+        { key: 'lastRun', label: 'Last run', render: (r) => r.lastRun || 'never' },
+        { key: 'statusText', label: 'Last status', render: (r) => r.statusText || r.status || '—' },
+        { key: 'description', label: 'Description', render: (r) => h('span.small', r.description || '') },
+      ], b.definitions, { filter: false, empty: 'No backup definitions.' }),
+      h('p.muted.small', b.lastFull.recorded ? `Last full backup recorded by IRIS: ${b.lastFull.time} · ${b.lastFull.description} · ${b.lastFull.device}`
+        : `Last full backup recorded by IRIS: none (${b.lastFull.description}).`),
+    ];
+  });
+  reload();
 }
 
 function licenseTab(body) {

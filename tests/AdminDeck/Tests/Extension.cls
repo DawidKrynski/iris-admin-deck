@@ -84,4 +84,61 @@ Method TestMetricsHistory()
     do $$$AssertTrue(last.%Get(8) >= -1 && (last.%Get(8) <= 2), "system state reported")
 }
 
+Method TestBackupSummary()
+{
+    set b = ##class(AdminDeck.Backups).Summary(20)
+    do $$$AssertEquals($namespace, "USER", "namespace restored after reading %SYS")
+    // IRIS ships four backup definitions (FullAllDatabases, FullDBList, IncrementalDBList, CumuIncrDBList)
+    do $$$AssertTrue(b.definitions.%Size() >= 4, "backup definitions listed")
+    set found = 0, it = b.definitions.%GetIterator()
+    while it.%GetNext(, .d) { set:d.name="FullAllDatabases" found = 1 }
+    do $$$AssertTrue(found, "FullAllDatabases definition present")
+    do $$$AssertTrue(b.history.%Size() <= 20, "history limit respected")
+    do $$$AssertTrue($isobject(b.scheduled) && $isobject(b.lastSuccessful), "scheduled tasks and last successful backups reported")
+    do $$$AssertEquals(b.lastFull.%GetTypeOf("recorded"), "boolean", "last full backup flag is a boolean")
+    // lastSuccessful holds only successful runs, and the newest one of each type
+    set it = b.lastSuccessful.%GetIterator()
+    while it.%GetNext(.type, .row) { do $$$AssertTrue(row.ok && (row.type = type), "last "_type_" backup succeeded") }
+    // The display limit never changes which backups count as the last successful ones
+    do $$$AssertEquals(##class(AdminDeck.Backups).Summary(1).lastSuccessful.%ToJSON(), ##class(AdminDeck.Backups).Summary(2000).lastSuccessful.%ToJSON(), "lastSuccessful independent of the limit")
+}
+
+/// lastSuccessful comes from the whole history, also from rows beyond the display limit.
+Method TestBackupLastSuccessfulBeyondLimit()
+{
+    // History rows, newest first: two failed runs, then a successful incremental and full backup
+    set sql = "SELECT Type, ""Time"", Status, Databases, Journal, LogFile FROM ("
+        _"SELECT 1 AS Seq, 'Full' AS Type, '2026-09-27 01:00:00' AS ""Time"", 'Failed' AS Status, '' AS Databases, '' AS Journal, '' AS LogFile"
+        _" UNION ALL SELECT 2, 'Full', '2026-09-26 01:00:00', 'Aborted', '', '', ''"
+        _" UNION ALL SELECT 3, 'Incremental', '2026-09-25 01:00:00', 'Completed', '', '', ''"
+        _" UNION ALL SELECT 4, 'Full', '2026-09-20 01:00:00', 'Completed', '', '', ''"
+        _" UNION ALL SELECT 5, 'Full', '2026-09-13 01:00:00', 'Completed', '', '', '') ORDER BY Seq"
+    set rs = ##class(%ResultSet).%New("%DynamicQuery:SQL")
+    do $$$AssertStatusOK(rs.Prepare(sql), "fake history prepared")
+    do $$$AssertStatusOK(rs.Execute(), "fake history read")
+    set page = ##class(AdminDeck.Backups).Collect(rs, 2, .last)
+    do $$$AssertEquals(page.%Size(), 2, "display limit applied")
+    do $$$AssertTrue('page.%Get(0).ok && 'page.%Get(1).ok, "the page itself holds only failed runs")
+    do $$$AssertEquals(last.Full.time, "2026-09-20 01:00:00", "newest successful full backup found beyond the limit")
+    do $$$AssertEquals(last.Incremental.time, "2026-09-25 01:00:00", "newest successful incremental backup found beyond the limit")
+    do $$$AssertTrue('last.%IsDefined("Cumulative"), "no cumulative backup invented")
+}
+
+Method TestBackupClassification()
+{
+    set b = "AdminDeck.Backups"
+    do $$$AssertTrue($classmethod(b, "Succeeded", "Completed"), "Completed is a success")
+    do $$$AssertTrue('$classmethod(b, "Succeeded", "Failed"), "Failed is not")
+    do $$$AssertTrue('$classmethod(b, "Succeeded", "Completed with warnings"), "a warning is not a clean success")
+    do $$$AssertTrue('$classmethod(b, "Succeeded", "Aborted"), "Aborted is not")
+    do $$$AssertTrue('$classmethod(b, "Succeeded", ""), "no status is not")
+    do $$$AssertEquals($classmethod(b, "TypeName", "Cumulative Incremental"), "Cumulative", "cumulative")
+    do $$$AssertEquals($classmethod(b, "TypeName", "Incremental"), "Incremental", "incremental")
+    do $$$AssertEquals($classmethod(b, "TypeName", "Full"), "Full", "full")
+    do $$$AssertEquals($classmethod(b, "TypeName", "External"), "External", "external")
+    do $$$AssertEquals($classmethod(b, "ParseTime", "2026-09-20 01:00:00"), $zdateh("2026-09-20", 3), "ODBC time")
+    do $$$AssertEquals($classmethod(b, "ParseTime", "09/20/2026 01:00:00"), $zdateh("2026-09-20", 3), "US time")
+    do $$$AssertEquals($classmethod(b, "ParseTime", "junk"), "", "unparsable time")
+}
+
 }

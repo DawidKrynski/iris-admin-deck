@@ -2,7 +2,7 @@
 import { admin, ext } from '../api.js';
 import { navigate, can } from '../app.js';
 import { h, clear, page, meter, badge, fmtBytes, fmtDuration, severityBadge, errorBox, loading, sparkline } from '../ui.js';
-import { dismountedDirs, nextSteps, openLink, mountStep } from '../actions.js';
+import { dismountedDirs, nextSteps, openLink, mountStep, backupFinding, BACKUP_MAX_AGE_DAYS } from '../actions.js';
 
 const REFRESH_MS = 5000;
 const HISTORY = 360; // last 30 minutes of the server-side sampler (AdminDeck.Metrics, 5-second samples)
@@ -124,10 +124,12 @@ function renderLive(box, series) {
 // recurring log problems — each with its next step at the end of the line.
 async function renderAttention(box, alerts) {
   clear(box, h('h2', 'Needs attention'), loading());
-  const [insights, certificates, dirs] = await Promise.all([
+  const [insights, certificates, dirs, backups] = await Promise.all([
     ext.get('/logs/messages/insights', { severity: 1, top: 6 }).catch((e) => e),
     can('Secure') ? expiringCertificates().catch(() => []) : [],
     admin.get('/v2/database-dirs').then(dismountedDirs, () => []),
+    // Unreadable backup history: say nothing rather than guess (the Backups tab shows the error).
+    ext.get('/backups', { limit: 50 }).then(backupFinding, () => null),
   ]);
   const serious = (alerts.SeriousAlerts || 0) + (alerts.ApplicationErrors || 0);
   const pats = insights instanceof Error ? [] : insights.patterns || [];
@@ -140,6 +142,7 @@ async function renderAttention(box, alerts) {
       badge(c.days < 0 ? 'expired' : `${c.days} d`, c.days < 0 ? 'err' : 'warn'), ' ',
       `X.509 credential ${c.alias}`, c.days < 0 ? ' has expired' : ` expires ${c.date}`,
       nextSteps(openLink('Open credential', `secrets/x509/${encodeURIComponent(c.alias)}`))) })),
+    ...(backups ? [{ level: backups.lastFailed ? 2 : 1, el: backupItem(backups) }] : []),
     ...pats.map((p) => ({ level: Math.min(p.maxSeverity, 2), el: h('li.attention-item',
       severityBadge(p.maxSeverity), ' ', h('strong', `${p.count}×`), ' ', h('span', p.example),
       h('div.muted.small', `${p.source} · last ${p.last}`)) })),
@@ -149,6 +152,18 @@ async function renderAttention(box, alerts) {
     serious ? h('p.muted.small', `${alerts.SeriousAlerts || 0} serious alerts and ${alerts.ApplicationErrors || 0} application errors since startup.`) : null,
     insights instanceof Error ? h('p.muted', `Log insights unavailable: ${insights.message}`) : null,
     items.length ? h('ul.plain', items.map((i) => i.el)) : insights instanceof Error ? null : h('div.empty-state', 'Nothing needs attention right now.'));
+}
+
+// Backups: none recorded, the newest successful one older than BACKUP_MAX_AGE_DAYS, or the newest run failed.
+function backupItem(f) {
+  const text = f.never ? 'No backup has run on this instance'
+    : f.days === null ? 'The age of the last successful backup is unknown'
+    : f.days > BACKUP_MAX_AGE_DAYS ? `Last successful backup ${f.days} days ago (${f.type}, ${f.time})`
+    : `Last successful backup ${f.days === 0 ? 'today' : `${f.days} d ago`} (${f.type})`;
+  return h('li.attention-item',
+    badge(f.lastFailed ? 'backup failed' : f.never ? 'no backup' : `${f.days} d`, f.lastFailed ? 'err' : 'warn'), ' ', text,
+    f.lastFailed ? h('div.muted.small', `Newest run: ${f.lastFailed.type} at ${f.lastFailed.time} — ${f.lastFailed.status || 'no status'}`) : null,
+    nextSteps(openLink('Backups', 'system/backups', 'Backup history and how to schedule a backup')));
 }
 
 // X.509 credentials whose certificate expires within 30 days (or has expired), soonest first.
