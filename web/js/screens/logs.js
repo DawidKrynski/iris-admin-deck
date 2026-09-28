@@ -201,6 +201,8 @@ const logSource = (id, label) => ({
   // Severity is filtered on the server so warnings are not crowded out of the 300-entry window.
   load: async (minSeverity) => ((await ext.get(`/logs/${id}`, { severity: minSeverity, limit: 300 })).entries || []).map((e) => ({
     ts: e.ts, severity: e.severity, title: `[${e.source}] ${e.message.split('\n')[0]}`, detail: e.message.includes('\n') ? e.message : '',
+    // Errors and dismounts are worth asking "has this happened before?"
+    similar: e.severity >= 2 || dismountedIn(e.message) ? e.message.split('\n')[0] : undefined,
   })),
 });
 

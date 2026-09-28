@@ -193,7 +193,9 @@ async function expiringCertificates() {
     .filter((c) => c.days < 30).sort((a, b) => a.days - b.days);
 }
 
-function renderTasks(box, rows) {
+function renderTasks(box, all) {
+  // A task that runs every few minutes would fill the list: show each task once, at its next run.
+  const rows = all.filter((t, i) => all.findIndex((o) => o.Task === t.Task) === i);
   clear(box,
     h('h2', 'Upcoming tasks', h('button.small', { onclick: () => navigate('tasks') }, 'All tasks')),
     rows.length ? h('dl.kv', rows.map((t) => [h('dt', t.Time), h('dd', t.Task, ' ', badge(t.Status, t.Status === 'Scheduled' ? 'ok' : 'warn'))]))

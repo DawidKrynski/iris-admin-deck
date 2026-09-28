@@ -4,9 +4,11 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: --check-caps false
+    # After every start: dismount the demo database REPORTS again (see scripts/demo_seed.py), so the incident
+    # in the README's "A morning on call" is there. Does nothing on an image built with DEMO=0.
+    command: --check-caps false --after "python3 /home/irisowner/dev/scripts/demo_seed.py --incident"
     ports:
-      - "127.0.0.1:52785:52773"
+      - "127.0.0.1:${ADMINDECK_PORT:-52785}:52773"
     volumes:
       - ./:/home/irisowner/dev
     # The image's own check fails while IRIS reports an "alert" state. Here that state comes from the demo data
