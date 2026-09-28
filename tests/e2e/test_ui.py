@@ -101,7 +101,76 @@ def check_csp():
     print("ok   no CSP violations with the policy enforced")
 
 
+def check_keyboard_access(page):
+    """Keyboard alternative to axe; no injected scripts or runtime dependencies."""
+    for screen in SCREENS:
+        page.goto(f"{UI}#/{screen}")
+        settled(page)
+        expect(page.locator("main")).to_have_attribute("tabindex", "-1")
+        assert page.title().endswith(" · IRIS Admin Deck")
+        unnamed = page.locator("main input, main select, main textarea").evaluate_all("""els => els.filter(e =>
+            !e.labels?.length && !e.getAttribute('aria-label') && !e.getAttribute('aria-labelledby')).length""")
+        assert unnamed == 0, f"unnamed controls on {screen}"
+        opener = page.locator(".search-button")
+        opener.focus()
+        page.keyboard.press("Enter")
+        expect(page.locator(".palette-input")).to_be_focused()
+        page.keyboard.press("Tab")
+        expect(page.locator(".palette-input")).to_be_focused()
+        page.keyboard.press("Shift+Tab")
+        expect(page.locator(".palette-input")).to_be_focused()
+        page.keyboard.press("ArrowDown")
+        active = page.locator(".palette-input").get_attribute("aria-activedescendant")
+        expect(page.locator(f"#{active}")).to_have_attribute("aria-selected", "true")
+        page.keyboard.press("Escape")
+        expect(page.locator(".palette")).to_have_count(0)
+        expect(opener).to_be_focused()
+        tabs = page.get_by_role("tab")
+        if tabs.count() > 1:
+            tabs.first.focus()
+            page.keyboard.press("ArrowRight")
+            expect(tabs.nth(1)).to_be_focused()
+            expect(tabs.nth(1)).to_have_attribute("aria-selected", "true")
+            expect(page.get_by_role("tabpanel")).to_have_attribute("aria-labelledby", tabs.nth(1).get_attribute("id"))
+
+    page.goto(f"{UI}#/webapps")
+    settled(page)
+    opener = page.get_by_role("button", name="New REST API", exact=True)
+    opener.focus()
+    page.keyboard.press("Enter")
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_have_attribute("aria-modal", "true")
+    assert dialog.evaluate("e => e.contains(document.activeElement)")
+    controls = dialog.locator("button:enabled, input:enabled, select:enabled, textarea:enabled, summary, a[href]")
+    for _ in range(controls.count() + 2):
+        page.keyboard.press("Tab")
+        assert dialog.evaluate("e => e.contains(document.activeElement)")
+    controls.first.focus()
+    page.keyboard.press("Shift+Tab")
+    expect(controls.last).to_be_focused()
+    page.keyboard.press("Tab")
+    expect(controls.first).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(dialog).to_have_count(0)
+    expect(opener).to_be_focused()
+    row = page.locator("main tr.clickable").first
+    if row.count():
+        for key in ("Enter", "Space"):
+            row.focus()
+            page.keyboard.press(key)
+            expect(page.get_by_role("dialog")).to_be_visible()
+            page.keyboard.press("Escape")
+            expect(row).to_be_focused()
+    sort = page.locator("main .sort-header").first
+    sort.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator("main th[aria-sort='ascending'], main th[aria-sort='descending']")).to_have_count(1)
+    expect(page.locator("main .sort-header").first).to_be_focused()
+    print("ok   keyboard accessibility: screens, palette, tabs, modal, rows and sort")
+
+
 def run_ui_checks(page):
+    check_keyboard_access(page)
     # 1. Every screen and every tab renders without a JavaScript error or an error box.
     for screen in SCREENS:
         page.goto(f"{UI}#/{screen}")
@@ -128,7 +197,7 @@ def run_ui_checks(page):
     settled(page)
     page.click("text=New REST API")
     page.fill(".modal input[placeholder='/api/my-app']", APP)
-    page.fill(".modal #f-DispatchClass", "AdminDeck.REST.Dispatch")
+    page.fill(".modal input[id^='f-DispatchClass-']", "AdminDeck.REST.Dispatch")
     text = toast_after(page, lambda: page.click(".modal footer button:has-text('Create')"))
     assert "application created" in text.lower() and "read back: ok" in text.lower(), text
     assert api("GET", f"/v2/web-app?name={APP}")["result"]["DispatchClass"] == "AdminDeck.REST.Dispatch"
@@ -136,7 +205,7 @@ def run_ui_checks(page):
 
     open_app(page)
     page.click(".modal button:has-text('Edit')")
-    page.fill(".modal #f-Description", "edited by UI test")
+    page.fill(".modal [id^='f-Description-']", "edited by UI test")
     text = toast_after(page, lambda: page.click(".modal footer button:has-text('Save changes')"))
     assert "application saved" in text.lower() and "read back: ok" in text.lower(), text
     assert api("GET", f"/v2/web-app?name={APP}")["result"]["Description"] == "edited by UI test"
@@ -145,7 +214,7 @@ def run_ui_checks(page):
     open_app(page)
     page.click(".modal button:has-text('Edit')")
     api("PUT", f"/v2/web-app?name={APP}", {"Description": "changed behind the user's back"})
-    page.fill(".modal #f-Description", "my change")
+    page.fill(".modal [id^='f-Description-']", "my change")
     text = toast_after(page, lambda: page.click(".modal footer button:has-text('Save changes')"))
     assert "changed by someone else" in text.lower(), text
     assert api("GET", f"/v2/web-app?name={APP}")["result"]["Description"] == "changed behind the user's back"

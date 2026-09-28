@@ -97,13 +97,13 @@ function showEntry(spec, entry, container) {
   const inputs = entry.params.map((param) => {
     const schema = resolve(spec, param.schema);
     const input = h('input', { type: schema.type === 'integer' || schema.type === 'number' ? 'number' : 'text',
-      value: param.example ?? schema.example ?? schema.default ?? '', required: !!param.required,
+      'aria-label': `${param.name} (${param.in})`, value: param.example ?? schema.example ?? schema.default ?? '', required: !!param.required,
       placeholder: param.description?.replace(/<[^>]*>/g, ' ').slice(0, 100) || '' });
     return { param, input };
   });
   const request = resolve(spec, op.requestBody);
   const bodySchema = resolve(spec, request.content?.['application/json']?.schema);
-  const bodyInput = request.content?.['application/json'] ? h('textarea.mono', { rows: 13 }, JSON.stringify(example(spec, bodySchema), null, 2)) : null;
+  const bodyInput = request.content?.['application/json'] ? h('textarea.mono', { rows: 13, 'aria-label': 'JSON request body' }, JSON.stringify(example(spec, bodySchema), null, 2)) : null;
   const output = h('div');
   const build = () => {
     let path = entry.path;

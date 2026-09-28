@@ -118,7 +118,7 @@ async function processAction(row, action, reload) {
 }
 
 function broadcast() {
-  const message = h('textarea', { rows: 4, placeholder: 'Message to active processes' });
+  const message = h('textarea', { rows: 4, 'aria-label': 'Broadcast message', placeholder: 'Message to active processes' });
   const pids = h('input', { placeholder: 'Comma-separated process IDs', 'aria-label': 'Process IDs' });
   modal('Broadcast message', [h('p.muted', 'Send to the process IDs you specify.'),
     h('div.form-grid', h('div.field', h('label', 'Message'), message), h('div.field', h('label', 'Process IDs'), pids))], {

@@ -105,7 +105,7 @@ def main():
             page.goto(f"{UI}#/webapps/{APP.replace('/', '%2F')}")
             page.wait_for_selector(".modal button:has-text('Edit')")
             page.click(".modal button:has-text('Edit')")
-            page.fill(".modal #f-Description", "Orders REST API (v2)")
+            page.fill(".modal [id^='f-Description-']", "Orders REST API (v2)")
             page.click(".modal footer button:has-text('Save changes')")
             page.wait_for_selector(".toast", timeout=15_000)
             page.wait_for_timeout(600)

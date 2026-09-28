@@ -54,11 +54,11 @@ export function score(text, query) {
 }
 
 function showPalette({ screens, actions, navigate, can }) {
-  const input = h('input.palette-input', { type: 'text', placeholder: 'Go to a screen, user, role, web app or task…', 'aria-label': 'Command palette', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'palette-list' });
-  const list = h('ul#palette-list.palette-list', { role: 'listbox' });
+  const input = h('input.palette-input', { type: 'text', placeholder: 'Go to a screen, user, role, web app or task…', 'aria-label': 'Command palette', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'palette-list', 'aria-autocomplete': 'list' });
+  const list = h('ul#palette-list.palette-list', { role: 'listbox', 'aria-label': 'Commands' });
   const hint = h('div.palette-hint.muted.small', '↑↓ to move · Enter to open · Esc to close');
   const overlay = h('div.overlay.palette-overlay', { onclick: (e) => { if (e.target === overlay) close(); } },
-    h('div.palette', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Command palette' }, input, list, hint));
+    h('div.palette', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'palette-title' }, h('h2.sr-only#palette-title', 'Command palette'), input, list, hint));
   const base = [
     ...screens.map((s) => ({ kind: 'Screen', label: s.label, sub: s.group, path: s.path })),
     ...actions.map((a) => ({ kind: 'Action', label: a.label, sub: '', run: a.run })),
@@ -67,9 +67,13 @@ function showPalette({ screens, actions, navigate, can }) {
   let shown = [];
   let active = 0;
   const returnFocus = document.activeElement;
+  const background = [...document.body.children].filter((el) => el.id !== 'toasts');
+  const inertBefore = background.map((el) => el.inert);
+  background.forEach((el) => { el.inert = true; });
 
   function close() {
     overlay.remove();
+    background.forEach((el, i) => { el.inert = inertBefore[i]; });
     document.removeEventListener('keydown', onKey, true);
     open = null;
     if (returnFocus && returnFocus.isConnected) returnFocus.focus();
@@ -95,7 +99,8 @@ function showPalette({ screens, actions, navigate, can }) {
       onclick: () => choose(item),
     }, h('span.badge', item.kind), h('span.palette-label', item.label), item.sub ? h('span.muted.small', item.sub) : null))
       : h('li.palette-empty.muted', objects.length ? 'No matches.' : 'No matches (still loading objects…)'));
-    input.setAttribute('aria-activedescendant', shown.length ? `palette-opt-${active}` : '');
+    if (shown.length) input.setAttribute('aria-activedescendant', `palette-opt-${active}`);
+    else input.removeAttribute('aria-activedescendant');
   }
   // Captures keys while open: the palette is modal, so handled keys do not reach dialogs underneath
   // and Tab keeps the focus in the search field.

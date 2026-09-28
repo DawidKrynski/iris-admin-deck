@@ -52,6 +52,7 @@ function applyTheme(t) {
   try { if (t) localStorage.setItem('adminDeck.theme', t); } catch { /* ignore */ }
   let theme = t;
   try { theme = theme || localStorage.getItem('adminDeck.theme'); } catch { /* ignore */ }
+  document.querySelector('[aria-label="Dark theme"]')?.setAttribute('aria-pressed', String(theme === 'dark'));
   if (theme) document.documentElement.dataset.theme = theme; else delete document.documentElement.dataset.theme;
 }
 
@@ -64,18 +65,37 @@ function applySidebar(mode) {
   if (menuButton) {
     const next = SIDEBAR_MODES[(SIDEBAR_MODES.indexOf(selected) + 1) % SIDEBAR_MODES.length];
     menuButton.title = `Sidebar: ${selected}. Click to ${{ auto: 'auto-hide', hidden: 'hide', pinned: 'pin' }[next]}`;
-    menuButton.setAttribute('aria-label', 'Toggle navigation');
+    menuButton.setAttribute('aria-label', menuButton.title);
+    syncSidebar();
   }
 }
 
+function syncSidebar() {
+  const mobile = matchMedia('(max-width: 860px)').matches;
+  const mode = document.documentElement.dataset.sidebar;
+  const expanded = mobile ? document.body.classList.contains('nav-open')
+    : mode === 'pinned' || (mode === 'auto' && (navEl?.matches(':hover, :focus-within') || document.querySelector('.sidebar-edge:hover')));
+  menuButton?.setAttribute('aria-expanded', String(!!expanded));
+  if (mobile) menuButton?.setAttribute('aria-label', 'Toggle navigation');
+  // Auto-hide remains keyboard reachable: focus-within reveals it before a link is used.
+  if (navEl) navEl.inert = mobile ? !expanded : mode === 'hidden';
+}
+matchMedia('(max-width: 860px)').addEventListener('change', syncSidebar);
+document.querySelector('.skip-link').addEventListener('click', (e) => {
+  e.preventDefault(); document.getElementById('main')?.focus();
+});
+
 function cycleSidebar() {
-  if (matchMedia('(max-width: 860px)').matches) return document.body.classList.toggle('nav-open');
+  if (matchMedia('(max-width: 860px)').matches) { document.body.classList.toggle('nav-open'); syncSidebar(); return; }
   applySidebar(SIDEBAR_MODES[(SIDEBAR_MODES.indexOf(document.documentElement.dataset.sidebar) + 1) % SIDEBAR_MODES.length]);
 }
 
 function renderLogin(message) {
   // Nothing of the previous session may stay on screen: dialogs, palette, API call history.
+  closePalette();
   closeModals();
+  closeAccount();
+  document.title = 'Sign in · IRIS Admin Deck';
   resetPalette();
   calls.length = 0;
   session.info = null;
@@ -101,7 +121,7 @@ function renderLogin(message) {
   h('label', { for: 'login-user' }, 'User name'), user,
   h('label', { for: 'login-pass' }, 'Password'), pass,
   err, btn);
-  clear(root, h('div.login-wrap', form));
+  clear(root, h('main#main.login-wrap', { tabindex: '-1' }, form));
   user.focus();
   // Optional deployment config (public demo): {"notice": "...", "username": "...", "password": "..."}
   fetch('config.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((cfg) => {
@@ -113,7 +133,7 @@ function renderLogin(message) {
 }
 
 function renderShell() {
-  navEl = h('nav.sidebar', { 'aria-label': 'Main' },
+  navEl = h('nav#navigation.sidebar', { 'aria-label': 'Main' },
     h('a.brand', { href: '#/dashboard' }, h('img', { src: 'img/logo.svg', alt: '' }), h('span', 'Admin Deck')),
     NAV.map((g) => {
       const items = g.items.filter((i) => !i.priv || can(...i.priv));
@@ -132,16 +152,20 @@ function renderShell() {
       h('button.icon', { onclick: () => toggleConsole(false), 'aria-label': 'Close console' }, icon('close'))),
     consoleList);
   main = h('main#main', { tabindex: '-1' });
-  menuButton = h('button.icon.menu', { onclick: cycleSidebar, 'aria-label': 'Toggle navigation' }, icon('menu'));
+  menuButton = h('button.icon.menu', { onclick: cycleSidebar, 'aria-controls': 'navigation', 'aria-label': 'Toggle navigation' }, icon('menu'));
   const top = h('header.topbar',
     menuButton,
     h('div.spacer'),
     h('button.ghost.search-button', { onclick: () => openPalette(paletteSources()), title: 'Go to anything (Ctrl+K)' }, icon('search'), h('span', 'Search'), h('kbd', 'Ctrl K')),
     h('button.ghost.console-button', { onclick: () => toggleConsole(), title: 'Show API calls made by this page' }, icon('console'), h('span', 'API console')),
-    h('button.ghost', { onclick: cycleTheme, title: 'Toggle light / dark theme', 'aria-label': 'Theme' }, icon('theme')),
-    h('button.ghost.account-button', { onclick: toggleAccount, 'aria-haspopup': 'dialog', 'aria-expanded': 'false', title: 'Account' },
+    h('button.ghost', { onclick: cycleTheme, title: 'Toggle light / dark theme', 'aria-label': 'Dark theme', 'aria-pressed': document.documentElement.dataset.theme === 'dark' }, icon('theme')),
+    h('button.ghost.account-button', { onclick: toggleAccount, 'aria-label': 'Account', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', title: 'Account' },
       icon('users'), h('span.user', info.username || '')));
   clear(root, h('div.shell', h('div.sidebar-edge'), navEl, h('div.content', top, main, consolePanel)));
+  for (const el of [navEl, root.querySelector('.sidebar-edge')]) {
+    for (const event of ['mouseenter', 'mouseleave', 'focusin']) el.addEventListener(event, syncSidebar);
+    el.addEventListener('focusout', () => queueMicrotask(syncSidebar));
+  }
   applySidebar();
 }
 
@@ -163,8 +187,8 @@ function toggleAccount() {
   const info = session.info || {};
   const privileges = Object.entries(info.privileges || {}).filter(([, v]) => v && v.use).map(([k]) => k).sort();
   const roles = h('dd', '…');
-  accountMenu = h('div.account-menu', { role: 'dialog', 'aria-label': 'Account' },
-    h('div.account-head', h('strong', info.username || '—')),
+  accountMenu = h('div.account-menu', { role: 'dialog', 'aria-labelledby': 'account-title' },
+    h('div.account-head', h('strong#account-title', info.username || '—')),
     h('dl.kv',
       h('dt', 'Roles'), roles,
       h('dt', 'Admin rights'), h('dd', privileges.length ? privileges.join(' · ') : 'none'),
@@ -175,6 +199,7 @@ function toggleAccount() {
       h('button', { onclick: () => { closeAccount(); signOut(); } }, 'Sign out')));
   document.querySelector('.topbar').append(accountMenu);
   document.querySelector('.account-button').setAttribute('aria-expanded', 'true');
+  accountMenu.querySelector('a, button').focus();
   document.addEventListener('mousedown', onOutside);
   document.addEventListener('keydown', onAccountKey);
   // Roles come from the extension (the SysAdmin API reports privileges, not role names).
@@ -237,11 +262,15 @@ async function route() {
   const r = ROUTES[path] || ROUTES.dashboard;
   if (!ROUTES[path]) history.replaceState(null, '', '#/dashboard');
   document.body.classList.remove('nav-open');
+  syncSidebar();
   // Dialogs belong to the screen that opened them.
   closePalette();
   closeModals();
   closeAccount();
-  for (const a of navEl.querySelectorAll('.nav-item')) a.classList.toggle('active', a.dataset.path === r.path);
+  for (const a of navEl.querySelectorAll('.nav-item')) {
+    a.classList.toggle('active', a.dataset.path === r.path);
+    if (a.dataset.path === r.path) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  }
   document.title = `${r.label} · IRIS Admin Deck`;
   const token = ++currentLoad;
   clear(main, loading());
@@ -257,7 +286,7 @@ async function route() {
     if (token === currentLoad) clear(main, errorBox(e));
     console.error(e);
   }
-  main.focus({ preventScroll: true });
+  if (!document.querySelector('[aria-modal="true"]')) main.focus({ preventScroll: true });
 }
 
 async function start() {

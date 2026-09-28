@@ -4,6 +4,9 @@ import { curl, redact, ext, onCall, PREFIX } from './api.js';
 import { verifiedChange, describeVerification } from './verify.js';
 import { changeCall, outcomeOf, openChange, closeChange } from './changes.js';
 
+let nextId = 0;
+const uniqueId = () => `ui-${++nextId}`;
+
 /** h('div.card#main', {onclick, title, dataset:{}}, child1, 'text', [children]) */
 export function h(tag, attrs, ...children) {
   const m = /^([a-z0-9-]+)?((?:[.#][\w-]+)*)$/i.exec(tag);
@@ -18,7 +21,7 @@ export function h(tag, attrs, ...children) {
     attrs = null;
   }
   for (const [k, v] of Object.entries(attrs || {})) {
-    if (v === undefined || v === null || v === false) continue;
+    if (v === undefined || v === null || (v === false && !k.startsWith('aria-'))) continue;
     if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
     else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k === 'style' && typeof v === 'object') {
@@ -28,9 +31,18 @@ export function h(tag, attrs, ...children) {
       }
     }
     else if (k === 'value' || k === 'checked' || k === 'disabled' || k === 'selected') el[k] = v;
-    else el.setAttribute(k, v === true ? '' : v);
+    else el.setAttribute(k, k.startsWith('aria-') ? String(v) : v === true ? '' : v);
   }
   append(el, children);
+  // The field convention keeps the visible label beside its control.
+  if (el.classList.contains('field')) {
+    const label = el.querySelector(':scope > label:not([for])');
+    const control = el.querySelector(':scope > input, :scope > select, :scope > textarea');
+    if (label && control) {
+      control.id ||= uniqueId();
+      label.htmlFor = control.id;
+    }
+  }
   return el;
 }
 
@@ -75,9 +87,8 @@ export function severityBadge(sev) {
 
 // ---------- toasts ----------
 export function toast(message, kind = 'ok') {
-  let box = document.getElementById('toasts');
-  if (!box) { box = h('div#toasts'); document.body.append(box); }
-  const t = h(`div.toast.${kind}`, { role: 'status' }, message);
+  const box = document.getElementById(kind === 'err' ? 'toast-errors' : 'toast-status');
+  const t = h(`div.toast.${kind}`, message);
   box.append(t);
   setTimeout(() => t.classList.add('hide'), 3800);
   setTimeout(() => t.remove(), 4300);
@@ -99,19 +110,43 @@ export function icon(name) {
 // ---------- modal ----------
 const openModals = new Set();
 /** Closes every open dialog (on navigation and when the session ends). */
-export function closeModals() { [...openModals].forEach((close) => close()); }
+export function closeModals() { [...openModals].reverse().forEach((close) => close()); }
 
 export function modal(title, body, { actions = [], wide = false, onClose } = {}) {
+  const opener = document.activeElement;
+  const titleId = uniqueId();
+  const background = [...document.body.children].filter((el) => el.id !== 'toasts');
+  const inertBefore = background.map((el) => el.inert);
   const close = () => {
-    if (!openModals.delete(close)) return;
+    if (!openModals.has(close)) return;
+    // An async parent action can finish while a child confirmation is still open.
+    const stack = [...openModals];
+    stack.slice(stack.indexOf(close) + 1).reverse().forEach((dismiss) => dismiss());
+    openModals.delete(close);
     overlay.remove();
-    document.removeEventListener('keydown', onKey);
+    document.removeEventListener('keydown', onKey, true);
+    background.forEach((el, i) => { el.inert = inertBefore[i]; });
+    if (opener?.isConnected && !opener.closest('[inert]')) opener.focus();
+    else document.getElementById('main')?.focus();
     onClose && onClose();
   };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const focusable = () => [...overlay.querySelectorAll('a[href],button,input,select,textarea,summary,[tabindex]')]
+    .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length && !el.closest('[inert]'));
+  const onKey = (e) => {
+    if ([...openModals].at(-1) !== close || overlay.inert) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); }
+    if (e.key === 'Tab') {
+      const items = focusable();
+      const index = items.indexOf(document.activeElement);
+      if (!items.length || index < 0 || (e.shiftKey ? index === 0 : index === items.length - 1)) {
+        e.preventDefault();
+        (items[e.shiftKey ? items.length - 1 : 0] || overlay.querySelector('.modal')).focus();
+      }
+    }
+  };
   const overlay = h('div.overlay', { onclick: (e) => { if (e.target === overlay) close(); } },
-    h(`div.modal${wide ? '.wide' : ''}`, { role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-      h('header', h('h2', title), h('button.icon', { onclick: close, 'aria-label': 'Close', title: 'Close' }, icon('close'))),
+    h(`div.modal${wide ? '.wide' : ''}`, { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId, tabindex: '-1' },
+      h('header', h('h2', { id: titleId }, title), h('button.icon', { onclick: close, 'aria-label': 'Close', title: 'Close' }, icon('close'))),
       h('div.modal-body', body),
       actions.length ? h('footer', actions.map((a) => h(`button${a.kind ? `.${a.kind}` : ''}`, {
         onclick: async (ev) => {
@@ -120,11 +155,11 @@ export function modal(title, body, { actions = [], wide = false, onClose } = {})
           try { const r = await a.onclick(); if (r !== false) close(); } catch (e) { toastError(e); } finally { btn.disabled = a.disabled ? a.disabled() : false; }
         },
       }, a.label))) : null));
-  document.addEventListener('keydown', onKey);
+  document.addEventListener('keydown', onKey, true);
   document.body.append(overlay);
+  background.forEach((el) => { el.inert = true; });
   openModals.add(close);
-  const first = overlay.querySelector('input,select,textarea,button:not(.icon)');
-  first && first.focus();
+  (focusable().find((el) => el.matches('input,select,textarea')) || focusable()[0] || overlay.querySelector('.modal')).focus();
   return { close, el: overlay };
 }
 
@@ -301,10 +336,15 @@ export function table(columns, rows, opts = {}) {
     const head = h('tr', columns.map((c) => h('th', {
       style: c.width ? { width: c.width } : null,
       class: state.sortKey === c.key ? (state.dir > 0 ? 'asc' : 'desc') : null,
-      onclick: () => { if (state.sortKey === c.key) state.dir *= -1; else { state.sortKey = c.key; state.dir = 1; } draw(); },
-    }, c.label)), opts.actions ? h('th.actions-col', '') : null);
+      scope: 'col', 'aria-sort': state.sortKey === c.key ? (state.dir > 0 ? 'ascending' : 'descending') : 'none',
+    }, h('button.sort-header', { onclick: () => {
+      if (state.sortKey === c.key) state.dir *= -1; else { state.sortKey = c.key; state.dir = 1; }
+      draw(); tbl.querySelectorAll('.sort-header')[columns.indexOf(c)].focus();
+    } }, c.label))), opts.actions ? h('th.actions-col', '') : null);
     const body = slice.length ? slice.map((r) => h(`tr${opts.onRow ? '.clickable' : ''}`, {
-      onclick: opts.onRow ? (e) => { if (!e.target.closest('button,a,input')) opts.onRow(r); } : null,
+      tabindex: opts.onRow ? '0' : null,
+      onkeydown: opts.onRow ? (e) => { if (e.target === e.currentTarget && ['Enter', ' '].includes(e.key)) { e.preventDefault(); opts.onRow(r); } } : null,
+      onclick: opts.onRow ? (e) => { if (!e.target.closest('button,a,input,select,textarea,summary,[contenteditable]')) opts.onRow(r); } : null,
     }, columns.map((c) => h('td', c.render ? c.render(r) : fmtValue(r[c.key]))),
     opts.actions ? h('td.actions', opts.actions(r)) : null))
       : [h('tr', h('td.empty', { colspan: columns.length + (opts.actions ? 1 : 0) }, opts.empty || 'Nothing here.'))];
@@ -357,7 +397,7 @@ export function objectForm(obj, fields, { readonly = [] } = {}) {
       })); break;
       default: input = h('input', { type: 'text', value: v ?? '', disabled: ro, required: f.required || false });
     }
-    input.id = `f-${f.key.replace(/\W/g, '_')}`;
+    input.id = `f-${f.key.replace(/\W/g, '_')}-${uniqueId()}`;
     inputs[f.key] = { input, f };
     return h(`div.field${f.type === 'bool' ? '.check' : ''}${f.type === 'json' || f.type === 'textarea' ? '.span' : ''}`,
       h('label', { for: input.id }, f.label || f.key), input, f.help ? h('small.muted', f.help) : null);
@@ -422,17 +462,32 @@ export async function load(container, fetcher, render) {
 }
 
 export function tabs(defs, active) {
-  const bar = h('nav.tabs', { role: 'tablist' });
-  const body = h('div.tab-body');
+  const prefix = uniqueId();
+  const bar = h('div.tabs', { role: 'tablist', 'aria-label': 'Sections' });
+  const body = h('div.tab-body', { role: 'tabpanel', id: `${prefix}-panel`, tabindex: '0' });
   const select = (id) => {
-    for (const b of bar.children) b.classList.toggle('active', b.dataset.id === id);
     const d = defs.find((x) => x.id === id) || defs[0];
-    // Fresh node per selection: late responses of a previous tab render into a detached node.
+    for (const b of bar.children) {
+      const selected = b.dataset.id === d.id;
+      b.classList.toggle('active', selected);
+      b.setAttribute('aria-selected', String(selected));
+      b.tabIndex = selected ? 0 : -1;
+    }
+    body.setAttribute('aria-labelledby', `${prefix}-${d.id}`);
     const content = h('div');
     clear(body, content);
     d.render(content);
   };
-  for (const d of defs) bar.append(h('button.tab', { role: 'tab', dataset: { id: d.id }, onclick: () => select(d.id) }, d.label));
+  for (const [i, d] of defs.entries()) bar.append(h('button.tab', {
+    role: 'tab', id: `${prefix}-${d.id}`, 'aria-controls': body.id, dataset: { id: d.id },
+    onclick: () => select(d.id),
+    onkeydown: (e) => {
+      const index = { ArrowRight: (i + 1) % defs.length, ArrowLeft: (i - 1 + defs.length) % defs.length,
+        Home: 0, End: defs.length - 1 }[e.key];
+      if (index === undefined) return;
+      e.preventDefault(); select(defs[index].id); bar.children[index].focus();
+    },
+  }, d.label));
   select(active || defs[0].id);
   return h('div', bar, body);
 }
