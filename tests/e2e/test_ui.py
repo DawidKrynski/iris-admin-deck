@@ -74,7 +74,30 @@ def main():
             api("DELETE", f"/v2/web-app?name={APP}")
             browser.close()
     assert not errors, f"JavaScript errors: {errors}"
+    check_csp()
     print("ALL UI TESTS PASSED")
+
+
+def check_csp():
+    """The checks above run with the page's CSP bypassed (Playwright's waits need eval). Here every screen is
+    opened again with the CSP in force, and any violation the browser reports fails the test."""
+    violations = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.on("console", lambda m: violations.append(m.text) if "Content Security Policy" in m.text else None)
+        page.goto(UI)
+        page.fill("#login-user", "SuperUser")
+        page.fill("#login-pass", "SYS")
+        page.click("button[type=submit]")
+        page.wait_for_selector(".sidebar")
+        for screen in SCREENS:
+            page.goto(f"{UI}#/{screen}")
+            page.wait_for_selector("main h1")
+            page.wait_for_timeout(1500)
+        browser.close()
+    assert not violations, f"CSP violations: {violations}"
+    print("ok   no CSP violations with the policy enforced")
 
 
 def run_ui_checks(page):
