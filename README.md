@@ -4,14 +4,40 @@
 
 A web UI for administering one InterSystems IRIS 2026.2+ instance through the SysAdmin REST API
 (`/api/admin/v2`). It covers web applications, users, roles and resources, wallet and certificates, tasks,
-processes, databases and namespaces. On top of that it adds a log timeline, a viewer for rotated
-`messages.old_*` files and a similar-incident search, which the API doesn't have. Every request the page
-sends is listed in the API console and can be copied as `curl`.
+processes, databases, namespaces, journals, backups, language servers and Interoperability productions. On
+top of that it adds a log timeline, a viewer for rotated `messages.old_*` files and a similar-incident
+search, which the API doesn't have. Every request the page sends is listed in the API console and can be
+copied as `curl`.
 
-Online demo (read-only): <https://niutics.pl/interSystems>, sign in as `demo` / `demo`. Every screen can be
-browsed, but changes are blocked there. Run it locally (below) to try the actions.
+I wrote it for the person who gets the call when something on an IRIS instance breaks: they need to see
+what went wrong, find out whether it happened before, fix it, and be sure the fix actually took.
+
+If you have two minutes:
+
+- Open the online demo, <https://niutics.pl/interSystems>, and sign in as `demo` / `demo`. It is read-only:
+  every screen can be browsed, changes are refused.
+- Follow [A morning on call](#a-morning-on-call) below: six steps from the dashboard warning to the fix.
+- To try the changes too, run it locally with one command, `docker compose up -d --build`
+  ([details](#run-it)).
 
 ![Dashboard](docs/img/dashboard.png)
+
+## A morning on call
+
+The demo data contains a small incident, so you can walk through it in the demo or locally:
+
+1. The dashboard's Needs attention list says the REPORTS database is dismounted.
+2. Logs & insights, Timeline, filtered by `reports`: the Sales export task, which runs every 5 minutes,
+   fails with `<PROTECT>` on `^Daily` in the REPORTS directory. Below it are the dismount in `messages.log`
+   and the audit record of who did it.
+3. Similar incidents, from the dismount line, lists the log entries that read like it. In the demo there is
+   one for every start of the container: the database goes away on each restart, which is the real finding.
+4. Mount, offered on the dismount line, shows the exact call first. After the call the page reads the
+   database back and reports whether it is mounted now.
+5. Run again on the failed task line re-runs the export, which now passes.
+6. The API console lists every call you just made; Copy curl turns the mount into a line for a runbook.
+
+On the public demo steps 4 and 5 are refused (it is read-only); locally they work.
 
 ## Run it
 
@@ -26,13 +52,28 @@ docker compose up -d --build
 ```
 
 Open <http://localhost:52785/admindeck/index.html> and sign in with `SuperUser` / `SYS`. That login is for the
-local demo container only; change the passwords for anything else.
+local demo container only; change the passwords for anything else. If port 52785 is taken, pick another one:
+`ADMINDECK_PORT=8080 docker compose up -d --build`.
+
+The first build pulls a 3.6 GB base image and takes a few minutes; the running container uses about 1.2 GB
+of RAM. The instance lives inside the container: `docker compose stop` / `start` keep your changes,
+`docker compose down` throws them away and the next `up` starts again from the demo state.
 
 The build seeds demo data through the SysAdmin API itself ([scripts/demo_seed.py](scripts/demo_seed.py)):
 two X.509 credentials (one expires in 12 days, so the expiry warning has something to show), a wallet
 collection with dummy secrets, a rotated `messages.old_*` log and a limited user `demo_operator` / `operator`
 (role `%Operator`) to see how the navigation hides screens you have no privilege for.
-Build with `--build-arg DEMO=0` to skip the seed.
+It also sets up the incident described above: database REPORTS and a Sales export task that reads it.
+`docker-compose.yml` dismounts REPORTS after every start of the container, so the export starts failing
+within 5 minutes. Build with `--build-arg DEMO=0` to skip the seed.
+
+If the page doesn't open:
+
+```bash
+docker compose ps                # the iris service should be "healthy" about a minute after start
+docker compose logs --tail 50 iris
+curl -sI http://localhost:52785/admindeck/index.html
+```
 
 Smoke test against a running instance:
 
@@ -223,6 +264,12 @@ third-party runtime dependencies; IPM installs it as files. A small sampler (`Ad
 sample every 5 seconds and keeps the last 720 in IRISTEMP, which is not journaled, so the charts show the
 last hour as soon as you open them.
 
+Sign-in uses the SysAdmin API's JWT login. The browser keeps the short-lived tokens in `sessionStorage`
+(access 60 s, refresh 15 min) and never the password. A script injected into the page could read those
+tokens, which is why the page carries a strict Content-Security-Policy (no inline scripts, same-origin only)
+and renders server text as text, never as HTML. An HttpOnly cookie would need a session layer in front of the
+SysAdmin API, which takes tokens in a header.
+
 More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Screenshots
@@ -248,14 +295,14 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 node --test tests/js
 cd python && python -m pytest -q tests && cd ..
 
-# Integration tests against the running container (26 tests): the endpoints the UI reads, the write flows
+# Integration tests against the running container: the endpoints the UI reads, the write flows
 # on throw-away objects, async tasks, the extension API, auth and CORS
 python3 -m unittest discover -s tests/integration -v
 
 # End-to-end UI tests (headless Chromium)
 uvx --with playwright python tests/e2e/test_ui.py
 
-# ObjectScript unit tests (8 test methods)
+# ObjectScript unit tests
 docker compose exec iris iris session IRIS -U USER '##class(%ZPM.PackageManager).Shell("iris-admin-deck test -only -v",1,1)'
 
 # Look up any SysAdmin API endpoint in the OpenAPI spec
