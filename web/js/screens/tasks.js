@@ -40,7 +40,7 @@ const canEdit = () => can('Operate', 'Task');
 
 export default async function render(el, params) {
   const managerBox = h('div.toolbar');
-  el.append(page('Tasks', 'Scheduled work of the Task Manager: run, pause and inspect what happened.',
+  el.append(page('Tasks', null,
     managerBox,
     tabs([
       { id: 'tasks', label: 'All tasks', render: (b) => tasksTab(b) },
@@ -100,7 +100,7 @@ export function runTask(t) {
     call: { method: 'POST', path: `/api/admin/v2/task/run?id=${t.Id}`, body: { RunNow: true } },
     confirmLabel: 'Run now',
     run: () => admin.post('/v2/task/run', { RunNow: true }, { id: t.Id }),
-    done: `Task “${t.Name}” started — check History for the result`,
+    done: `Task “${t.Name}” started. The result appears under History.`,
   });
 }
 

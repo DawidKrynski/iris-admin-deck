@@ -1,4 +1,4 @@
-// Dashboard: health at a glance, live throughput, resources and what needs attention.
+// Dashboard: /v2/monitor/dashboard/main, the extension's /os and /metrics, refreshed every 5 s.
 import { admin, ext } from '../api.js';
 import { navigate, can } from '../app.js';
 import { h, clear, page, meter, badge, fmtBytes, fmtDuration, severityBadge, errorBox, loading, sparkline } from '../ui.js';
@@ -62,7 +62,6 @@ function push(arr, v) {
   if (arr.length > HISTORY) arr.shift();
 }
 
-// One quiet line at the bottom: how long the instance runs and how much is running.
 function renderSummary(box, m) {
   const su = m.SystemUsage || {};
   clear(box, `IRIS up ${shortUptime(m.Status && m.Status.UpTime)} · last backup: ${(m.Status && m.Status.LastBackup) || 'never'} · `,
@@ -151,7 +150,7 @@ async function renderAttention(box, alerts) {
     h('h2', 'Needs attention', h('button.small', { onclick: () => navigate('logs') }, 'Open logs')),
     serious ? h('p.muted.small', `${alerts.SeriousAlerts || 0} serious alerts and ${alerts.ApplicationErrors || 0} application errors since startup.`) : null,
     insights instanceof Error ? h('p.muted', `Log insights unavailable: ${insights.message}`) : null,
-    items.length ? h('ul.plain', items.map((i) => i.el)) : insights instanceof Error ? null : h('div.empty-state', 'Nothing needs attention right now.'));
+    items.length ? h('ul.plain', items.map((i) => i.el)) : insights instanceof Error ? null : h('div.empty-state', 'No dismounted databases, no certificates expiring within 30 days, no errors or warnings in messages.log.'));
 }
 
 // Backups: none recorded, the newest successful one older than BACKUP_MAX_AGE_DAYS, or the newest run failed.
@@ -162,7 +161,7 @@ function backupItem(f) {
     : `Last successful backup ${f.days === 0 ? 'today' : `${f.days} d ago`} (${f.type})`;
   return h('li.attention-item',
     badge(f.lastFailed ? 'backup failed' : f.never ? 'no backup' : `${f.days} d`, f.lastFailed ? 'err' : 'warn'), ' ', text,
-    f.lastFailed ? h('div.muted.small', `Newest run: ${f.lastFailed.type} at ${f.lastFailed.time} — ${f.lastFailed.status || 'no status'}`) : null,
+    f.lastFailed ? h('div.muted.small', `Newest run: ${f.lastFailed.type} at ${f.lastFailed.time}: ${f.lastFailed.status || 'no status'}`) : null,
     nextSteps(openLink('Backups', 'system/backups', 'Backup history and how to schedule a backup')));
 }
 

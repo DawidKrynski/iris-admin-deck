@@ -106,7 +106,7 @@ def run_ui_checks(page):
     page.fill(".modal input[placeholder='/api/my-app']", APP)
     page.fill(".modal #f-DispatchClass", "AdminDeck.REST.Dispatch")
     text = toast_after(page, lambda: page.click(".modal footer button:has-text('Create')"))
-    assert "application created" in text.lower() and "verified" in text.lower(), text
+    assert "application created" in text.lower() and "read back: ok" in text.lower(), text
     assert api("GET", f"/v2/web-app?name={APP}")["result"]["DispatchClass"] == "AdminDeck.REST.Dispatch"
     print("ok   create web app (verified)")
 
@@ -114,7 +114,7 @@ def run_ui_checks(page):
     page.click(".modal button:has-text('Edit')")
     page.fill(".modal #f-Description", "edited by UI test")
     text = toast_after(page, lambda: page.click(".modal footer button:has-text('Save changes')"))
-    assert "application saved" in text.lower() and "verified" in text.lower(), text
+    assert "application saved" in text.lower() and "read back: ok" in text.lower(), text
     assert api("GET", f"/v2/web-app?name={APP}")["result"]["Description"] == "edited by UI test"
     print("ok   edit web app (verified by read-back)")
 
@@ -138,7 +138,7 @@ def run_ui_checks(page):
     dialog.locator(".confirm-type input").fill(APP)
     expect(confirm).to_be_enabled()
     text = toast_after(page, confirm.click)
-    assert "application deleted" in text.lower() and "verified" in text.lower(), text
+    assert "application deleted" in text.lower() and "read back: ok" in text.lower(), text
     assert api("GET", f"/v2/web-app?name={APP}")["status"]["errors"], "app still exists"
     print("ok   typed-confirm delete (verified gone)")
 

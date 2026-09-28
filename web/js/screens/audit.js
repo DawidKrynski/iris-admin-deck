@@ -10,7 +10,7 @@ const readAuditEvent = (query) => admin.get('/v2/security/audit/event', query);
 
 export default async function render(el, params) {
   const status = h('div.toolbar');
-  el.append(page('Audit trail', 'Search security events and see what is recorded.', status,
+  el.append(page('Audit trail', null, status,
     tabs([{ id: 'records', label: 'Records', render: recordsTab },
       { id: 'events', label: 'Events', render: eventsTab },
       can('Secure') ? { id: 'maintenance', label: 'Maintenance', render: maintenanceTab } : null].filter(Boolean), params[0])));
@@ -21,7 +21,7 @@ async function statusPanel(box) {
   try {
     const result = await readAuditState();
     const enabled = !!result.Enabled;
-    // Switching auditing off is deliberately not offered here: it only ever weakens the instance.
+    // No switch to turn auditing off: use SMP or the API console for that.
     clear(box, h('span', 'Auditing: '), badge(enabled ? 'Enabled' : 'Disabled', enabled ? 'ok' : 'warn'),
       !enabled && can('Secure') ? button('Enable auditing', () => confirmAction({
         title: 'Enable auditing', message: 'New audit records will be captured.',
@@ -119,7 +119,7 @@ function copyCard() {
         await finish(await admin.post('/v2/security/audit/record/copy', body));
         // The copy is not readable through the API; confirm at least that the source kept its records.
         const kept = await countRecords(range);
-        toast(kept >= count ? `Copy finished — ${countLabel(kept, COUNT_CAP)} records still in the audit trail` :
+        toast(kept >= count ? `Copy finished. ${countLabel(kept, COUNT_CAP)} records still in IRISAUDIT.` :
           `Copy finished, but only ${kept} records remain in the range`, kept >= count ? 'ok' : 'warn');
       } });
   };
@@ -148,7 +148,7 @@ function purgeCard(reload) {
       run: async () => {
         await finish(await admin.post('/v2/security/audit/record/purge', body));
         const left = await countRecords(range);
-        toast(left ? `Purge accepted, but ${left} records before ${cutoff} remain` : 'Records purged — verified: none left before the cutoff', left ? 'warn' : 'ok');
+        toast(left ? `Purge accepted, but ${left} records before ${cutoff} remain` : 'Records purged. Read back: none left before the cutoff.', left ? 'warn' : 'ok');
       } });
     if (ok) reload();
   };

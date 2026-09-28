@@ -26,7 +26,7 @@ function authNames(a) {
 }
 export default async function render(el, params) {
   const body = h('div');
-  el.append(page('Web apps & REST', 'Applications, authentication and routing for incoming HTTP requests.', body));
+  el.append(page('Web apps & REST', null, body));
   let filter = 'All';
   const reload = () => load(body, () => admin.get('/v2/web-apps'), (rows) => {
     const shown = rows.filter((a) => filter === 'All' || filter === 'System' && system(a) || filter === 'REST' && kind(a) === 'REST' || filter === 'CSP' && kind(a) !== 'REST' && !system(a));

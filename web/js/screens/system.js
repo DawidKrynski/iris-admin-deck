@@ -47,7 +47,7 @@ function settingsFields(settings, changes) {
 const dbResources = () => admin.get('/v2/security/resources').then((rows) => rows.map((r) => r.Name).filter((n) => /^%DB_/i.test(n)), () => []);
 
 export default async function render(el, params) {
-  el.append(page('Databases & system', 'Storage, namespaces, journals and background work in one operational view.',
+  el.append(page('Databases & system', null,
     tabs([
       { id: 'databases', label: 'Databases', render: databasesTab },
       { id: 'namespaces', label: 'Namespaces', render: namespacesTab },
@@ -217,7 +217,7 @@ async function removeOrphanFile(c) {
   }
   const failed = await admin.del('/v2/database-dir', { dir: c.dir }).then(() => null, (e) => e);
   try {
-    if (!await exists(() => readDbDir(c.dir))) return '(the new database file was removed again, verified by reading it back)';
+    if (!await exists(() => readDbDir(c.dir))) return '(the new database file was removed again; read back: gone)';
   } catch (e) {
     return `(removing the new file in ${c.dir} could not be verified: ${e.message}; check it under Databases)`;
   }
@@ -537,7 +537,7 @@ function journalRecords(panel, file) {
   const describe = () => {
     const [first, ...rest] = conditions(state.applied);
     return `Showing ${plural(state.rows.length, 'record')}, newest first, of the latest ${state.read} ${first ? 'matching' : 'in this file'}`
-      + `${state.offset ? ' — older records not loaded yet' : ' — whole file read'}.`
+      + `${state.offset ? '; older records not loaded yet' : '; whole file read'}.`
       + (first ? ` IRIS matched ${first.label.toLowerCase()} ${first.value}` : '')
       + (rest.length ? `; ${rest.map((c) => c.label.toLowerCase()).join(', ')} narrowed each page here.` : first ? '.' : '')
       + (state.hidden ? ` ${plural(state.hidden, 'record')} of API background tasks and bare transaction markers hidden.` : '');

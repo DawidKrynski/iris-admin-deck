@@ -88,7 +88,7 @@ export async function verifiedChange({ read, write, original, changes = {}, expe
 
 /** Short human message for a verification outcome. */
 export function describeVerification({ status, mismatched }, what = 'Change') {
-  if (status === 'verified') return [`${what} — verified by reading it back`, 'ok'];
-  if (status === 'not-reflected') return [`${what} was accepted, but reading it back shows a difference: ${mismatched.join(', ')}`, 'warn'];
-  return [`${what} — accepted (not verifiable by read-back)`, 'ok'];
+  if (status === 'verified') return [`${what}. Read back: OK`, 'ok'];
+  if (status === 'not-reflected') return [`${what}, but the read-back differs: ${mismatched.join(', ')}`, 'warn'];
+  return [`${what}. Accepted; nothing to read back`, 'ok'];
 }

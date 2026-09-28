@@ -24,7 +24,7 @@ async function readState(ns) {
 
 export default async function render(el, params) {
   const body = h('div');
-  el.append(page('Interoperability', 'Productions in every namespace with Interoperability enabled: state, items, queues and errors.', body));
+  el.append(page('Interoperability', null, body));
   if (params[0]) namespaceView(body, params[0]); else overview(body);
 }
 
@@ -73,7 +73,7 @@ function namespaceView(body, ns) {
     h('div.card',
       h('h2', h('span', `${ns} · ${productionLabel(s)}`), stateBadge(s.state)),
       kv({ Namespace: ns, Production: productionLabel(s), State: s.state, 'Errors in the last hour': s.errorsLastHour,
-        'Changes not applied': s.needsUpdate ? `yes — ${s.updateReason || 'the configuration changed since the production started'}` : 'no' })),
+        'Changes not applied': s.needsUpdate ? `yes: ${s.updateReason || 'the configuration changed since the production started'}` : 'no' })),
     s.canRun && s.productions.length > 1 && s.state !== 'Running' ? [h('h3', 'Productions in this namespace'),
       table([{ key: 'name', label: 'Production' }], s.productions.map((name) => ({ name })), {
         filter: false, actions: (r) => [startButton(ns, r.name, s, reload)] })] : null,

@@ -48,7 +48,7 @@ function catalogue(spec) {
 
 export default async function render(el) {
   const content = h('div', loading());
-  el.append(page('API explorer', 'Inspect the SysAdmin contract and preview exact calls before sending them.', content));
+  el.append(page('API explorer', null, content));
   try {
     specPromise ||= fetch('openapi.json').then((response) => {
       if (!response.ok) throw new Error(`OpenAPI specification: HTTP ${response.status}`);

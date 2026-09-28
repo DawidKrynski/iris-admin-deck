@@ -20,7 +20,7 @@ export default async function render(el, params) {
   if (!files.some((f) => f.key === state.file)) state.file = 'messages';
 
   const body = h('div');
-  el.append(page('Logs & insights', 'Events from every subsystem in one place: logs, audit, tasks — plus recurring problems and similar incidents. No shell access needed.', body));
+  el.append(page('Logs & insights', null, body));
   let similarQuery = '';
   const t = tabs([
     { id: 'timeline', label: 'Timeline', render: (b) => timeline(b, timelineQuery || '', (text) => { similarQuery = text; switchTab('similar'); }) },
@@ -37,7 +37,7 @@ function fileSelect(state, onchange) {
   const rotated = state.files.filter((f) => f.rotated);
   return h('select', { 'aria-label': 'Log file', onchange: (e) => { state.file = e.target.value; state.offset = 0; onchange(); } },
     h('optgroup', { label: 'Current' }, current.map((f) => h('option', { value: f.key, selected: f.key === state.file, disabled: !f.exists },
-      `${f.name}${f.exists ? ` (${fmtBytes(f.size)})` : ' — not present'}`))),
+      `${f.name}${f.exists ? ` (${fmtBytes(f.size)})` : ' (not present)'}`))),
     rotated.length ? h('optgroup', { label: 'Rotated (older)' }, rotated.map((f) => h('option', { value: f.key, selected: f.key === state.file },
       `${f.name} · ${String(f.modified).slice(0, 16)} (${fmtBytes(f.size)})`))) : null);
 }
@@ -60,7 +60,7 @@ function viewer(box, state, onSimilar) {
   const more = h('div.pager');
   const rotatedCount = state.files.filter((f) => f.rotated).length;
   clear(box,
-    h('div.idea-note.small', `Older rotated logs (messages.old_*, alerts.old_*) are listed under “Rotated”${rotatedCount ? ` — ${rotatedCount} found` : ''}. `,
+    h('div.idea-note.small', `Older rotated logs (messages.old_*, alerts.old_*) are listed under “Rotated”${rotatedCount ? ` (${rotatedCount} found)` : ''}. `,
       h('a', { href: 'https://ideas.intersystems.com/ideas/DPI-I-966', target: '_blank', rel: 'noopener' }, 'Ideas portal DPI-I-966')),
     h('div.log-controls', fileSelect(state, () => fetchLines(true)), chips, search, sourceSel,
       button('Search', () => { state.q = search.value; state.offset = 0; fetchLines(); }, 'primary')),
@@ -99,7 +99,7 @@ function insights(box, state, onPattern) {
   const sevSel = h('select', { 'aria-label': 'Minimum severity', onchange: () => run() },
     h('option', { value: 1 }, 'Warnings and errors'), h('option', { value: 2 }, 'Errors only'), h('option', { value: 0 }, 'Everything'));
   clear(box,
-    h('p.muted', 'Log messages are normalised (numbers, paths and quoted values replaced) and grouped, so the same problem repeated 500 times shows up once — ranked by severity, then frequency.'),
+    h('p.muted', 'Numbers, paths and quoted values are masked, and identical messages are counted once. Sorted by severity, then count.'),
     h('div.toolbar', fileSelect(state, () => run()), sevSel), out);
   const run = () => load(out, () => ext.get(`/logs/${encodeURIComponent(state.file)}/insights`, { severity: sevSel.value, top: 50 }), (res) => [
     h('p.muted.small', `${res.distinct} distinct patterns in ${fmtBytes(res.size)} of log.`),
@@ -127,8 +127,7 @@ function similar(box, state, initialQuery) {
     state.files.filter((f) => f.exists).map((f) => h('option', { value: f.key }, f.name)));
   const minSev = h('select', { 'aria-label': 'Minimum severity' }, h('option', { value: 0 }, 'Any severity'), h('option', { value: 1 }, 'Warnings+'), h('option', { value: 2 }, 'Errors+'));
   clear(box,
-    h('p.muted', 'Every log entry is embedded into a 256-dimension vector (feature hashing, computed in Embedded Python) and stored in an IRIS VECTOR column. ',
-      'Search uses VECTOR_COSINE to find entries describing the same kind of problem, even when numbers, paths or wording differ.'),
+    h('p.muted', 'Matches by wording (hashed words and character trigrams, HNSW index), not by meaning. Rebuild the index after the log rotates.'),
     status,
     h('div.field.span', h('label', 'Describe or paste an incident'), q),
     h('div.toolbar', { style: { marginTop: '8px' } }, scope, minSev, button('Find similar', () => search(), 'primary')),
@@ -181,7 +180,7 @@ function similar(box, state, initialQuery) {
         { key: 'file', label: 'File' },
       ], rows, {
         filter: false,
-        empty: 'No indexed entries yet — build the index first.',
+        empty: 'Nothing indexed yet. Build the index first.',
         onRow: (r) => navigate(`logs/${encodeURIComponent(r.file)}/${encodeURIComponent(r.message.split(/\s+/).slice(0, 5).join(' '))}`),
       }));
     } catch (e) { clear(results, errorBox(e)); }
@@ -227,7 +226,7 @@ const SUBSYSTEMS = [
       return (Array.isArray(r) ? r : []).map((a) => ({
         ts: String(a.TimeStamp || '').slice(0, 19),
         severity: /LoginFailure/i.test(a.Event) ? 2 : AUDIT_WARN.test(a.Event) ? 1 : 0,
-        title: `${a.EventSource}/${a.EventType}/${a.Event} · ${a.Username || '—'}${a.Description ? ` — ${a.Description}` : ''}`,
+        title: `${a.EventSource}/${a.EventType}/${a.Event} · ${a.Username || '—'}${a.Description ? `: ${a.Description}` : ''}`,
         event: a.Event, user: a.Username,
         detail: a.EventData || '',
       }));
@@ -337,7 +336,7 @@ function timeline(box, initialQuery, onSimilar) {
   };
   search.addEventListener('input', draw);
   clear(box,
-    h('p.muted', 'One chronological view of what happened on this instance: log files, application errors, security audit and Task Manager runs. Toggle subsystems, pick a severity, filter by text.'),
+    h('p.muted', 'messages.log, alerts.log, SystemMonitor.log, journal.log, ^ERRORS of every namespace, the security audit and Task Manager history.'),
     h('div.toolbar', chips), h('div.toolbar', sev, search), out);
   run();
 }

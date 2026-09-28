@@ -15,7 +15,7 @@ const readSecret = (collection, name) => findInList('/v2/wallet/secrets', { coll
 export default async function render(el, params) {
   // #/secrets/<tab> opens a tab; #/secrets/x509/<alias> also opens that credential (e.g. from the dashboard).
   let openAlias = params?.[0] === 'x509' ? params[1] : null;
-  el.append(page('Secrets & certificates', 'Wallet values, certificates, TLS connections and OAuth2 integrations.', tabs([
+  el.append(page('Secrets & certificates', null, tabs([
     { id: 'wallet', label: 'Wallet', render: walletTab },
     { id: 'x509', label: 'X.509 credentials', render: (b) => { x509Tab(b, openAlias); openAlias = null; } },
     { id: 'ssl', label: 'SSL/TLS', render: sslTab }, { id: 'oauth', label: 'OAuth2', render: oauthTab },

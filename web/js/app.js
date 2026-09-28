@@ -1,31 +1,30 @@
-// App shell: login, persona-grouped navigation, hash router, API console drawer.
+// App shell: login, navigation, hash router, API console drawer.
 import { admin, ext, login, logout, onCall, curl } from './api.js';
 import { h, clear, toastError, copy, errorBox, loading, icon, closeModals } from './ui.js';
 import { installPalette, openPalette, resetPalette, closePalette } from './palette.js';
 
-// Navigation is grouped by the job people come to do, not by API category.
 // `priv` = SysAdmin API privilege(s) (from /api/admin/info) needed for the screen; any of them suffices.
 export const NAV = [
   { group: 'Overview', items: [
     { path: 'dashboard', label: 'Dashboard', priv: ['Operate'], module: './screens/dashboard.js' },
   ] },
-  { group: 'Build & integrate', items: [
+  { group: 'Applications', items: [
     { path: 'webapps', label: 'Web apps & REST', priv: ['Secure'], module: './screens/webapps.js' },
     { path: 'explorer', label: 'API explorer', module: './screens/explorer.js' },
   ] },
-  { group: 'Secure', items: [
+  { group: 'Security', items: [
     { path: 'users', label: 'Users', priv: ['Secure'], module: './screens/users.js' },
     { path: 'roles', label: 'Roles & permissions', priv: ['Secure'], module: './screens/roles.js' },
     { path: 'secrets', label: 'Secrets & certificates', priv: ['Secure', 'Wallet', 'OAuth2_Client'], module: './screens/secrets.js' },
   ] },
-  { group: 'Operate', items: [
+  { group: 'System operation', items: [
     { path: 'tasks', label: 'Tasks', priv: ['Operate', 'Task'], module: './screens/tasks.js' },
     { path: 'processes', label: 'Processes & locks', priv: ['Operate'], module: './screens/processes.js' },
     { path: 'system', label: 'Databases & system', priv: ['Manage', 'Operate'], module: './screens/system.js' },
     { path: 'languages', label: 'Language servers', priv: ['ExternalLanguageServerEdit'], module: './screens/languages.js' },
     { path: 'interop', label: 'Interoperability', priv: ['Operate'], module: './screens/interop.js' },
   ] },
-  { group: 'Observe', items: [
+  { group: 'Monitoring', items: [
     { path: 'status', label: 'Status', priv: ['Operate'], module: './screens/status.js' },
     { path: 'logs', label: 'Logs & insights', priv: ['Operate'], module: './screens/logs.js' },
     { path: 'audit', label: 'Audit trail', priv: ['Secure'], module: './screens/audit.js' },
@@ -63,7 +62,7 @@ function applySidebar(mode) {
   document.documentElement.dataset.sidebar = selected;
   if (menuButton) {
     const next = SIDEBAR_MODES[(SIDEBAR_MODES.indexOf(selected) + 1) % SIDEBAR_MODES.length];
-    menuButton.title = `Sidebar: ${selected} — click to ${{ auto: 'auto-hide', hidden: 'hide', pinned: 'pin' }[next]}`;
+    menuButton.title = `Sidebar: ${selected}. Click to ${{ auto: 'auto-hide', hidden: 'hide', pinned: 'pin' }[next]}`;
     menuButton.setAttribute('aria-label', 'Toggle navigation');
   }
 }
@@ -97,7 +96,7 @@ function renderLogin(message) {
     },
   },
   h('div.brand.big', h('img', { src: 'img/logo.svg', alt: '' }), h('span', 'IRIS Admin Deck')),
-  h('p.muted', 'Management portal for InterSystems IRIS, powered by the SysAdmin API.'),
+  h('p.muted', 'InterSystems IRIS 2026.2+ · /api/admin/v2'),
   h('label', { for: 'login-user' }, 'User name'), user,
   h('label', { for: 'login-pass' }, 'Password'), pass,
   err, btn);
@@ -127,7 +126,7 @@ function renderShell() {
   const info = session.info || {};
   consoleList = h('ol.console-list');
   consolePanel = h('aside.api-console', { hidden: true, 'aria-label': 'API console' },
-    h('header', h('strong', 'API console'), h('span.muted', ' — every call this UI makes; copy any as curl'),
+    h('header', h('strong', 'API console'), h('span.muted', ' · last 200 requests from this tab'),
       h('button.small', { onclick: () => { calls.length = 0; drawConsole(); } }, 'Clear'),
       h('button.icon', { onclick: () => toggleConsole(false), 'aria-label': 'Close console' }, icon('close'))),
     consoleList);
@@ -164,7 +163,7 @@ function toggleAccount() {
   const privileges = Object.entries(info.privileges || {}).filter(([, v]) => v && v.use).map(([k]) => k).sort();
   const roles = h('dd', '…');
   accountMenu = h('div.account-menu', { role: 'dialog', 'aria-label': 'Account' },
-    h('div.account-head', h('strong', info.username || '—'), h('span.muted.small', 'Signed in with a JWT; the password is not stored')),
+    h('div.account-head', h('strong', info.username || '—')),
     h('dl.kv',
       h('dt', 'Roles'), roles,
       h('dt', 'Admin rights'), h('dd', privileges.length ? privileges.join(' · ') : 'none'),

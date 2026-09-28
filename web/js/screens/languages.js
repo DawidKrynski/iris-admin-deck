@@ -22,7 +22,7 @@ const fields = (type) => [...COMMON, ...customKeys(type).map((key) => ({ key, la
 
 export default async function render(el, params) {
   const body = h('div');
-  el.append(page('Language servers', 'External language servers (gateways) for Python, Java, .NET and more.', body));
+  el.append(page('Language servers', null, body));
   const reload = () => load(body, async () => {
     const rows = await admin.get('/v2/ext-lang-servers');
     // The list has no state: one activity read per server (a failure only leaves that state unknown).

@@ -15,7 +15,7 @@ const FIELDS = [
 const privatePost = (pathname, body, name) => admin.post(pathname, body, { name });
 export default async function render(el, params) {
   const body = h('div');
-  el.append(page('Users', 'Accounts, roles and login access.', body));
+  el.append(page('Users', null, body));
   const reload = () => load(body, () => admin.get('/v2/security/users'), (rows) => [
     toolbar(can('Secure') ? button([icon('plus'), 'New user'], () => edit(null, reload), 'primary') : null, button('Refresh', reload)),
     table([

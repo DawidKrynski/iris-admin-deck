@@ -60,7 +60,7 @@ function errorMessage(payload, status) {
     if (st.summary) return st.summary;
   }
   if (payload && payload.errors) return payload.errors.map((e) => e.error || e).join('; ');
-  return status === 400 ? 'HTTP 400 Bad Request — the server gave no reason' : `HTTP ${status}`;
+  return status === 400 ? 'HTTP 400 Bad Request (no reason given)' : `HTTP ${status}`;
 }
 
 class Client {

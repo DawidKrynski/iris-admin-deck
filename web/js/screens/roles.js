@@ -8,7 +8,7 @@ const readResource = (name) => admin.get('/v2/security/resource', { name });
 const readService = (name) => admin.get('/v2/security/service', { name });
 const EDIT = [{ key: 'Description', type: 'textarea' }, { key: 'GrantedRoles', type: 'json' }, { key: 'EscalationOnly', type: 'bool' }, { key: 'Resources', type: 'json', help: 'Array of {Name, Permissions} grants.' }];
 export default async function render(el, params) {
-  el.append(page('Roles & permissions', 'Role grants, resource permissions, services and SQL privileges.', tabs([
+  el.append(page('Roles & permissions', null, tabs([
     // #/roles/roles/<name> (e.g. from the command palette) opens that role
     { id: 'roles', label: 'Roles', render: (body) => rolesTab(body, params && params[0] === 'roles' ? params[1] : null) },
     { id: 'resources', label: 'Resources', render: resourcesTab },
@@ -97,7 +97,7 @@ function resourceEdit(resource, reload) {
     const body = fresh ? form.value() : diff(resource, form.value());
     // IRIS 2026.2 rejects an empty PublicPermission with a bare 400 (create and edit), see README notes.
     if ('PublicPermission' in body && !String(body.PublicPermission).trim()) {
-      throw new Error('The SysAdmin API (IRIS 2026.2) cannot set an empty public permission — enter at least one of R, W, U.');
+      throw new Error('The SysAdmin API (IRIS 2026.2) cannot set an empty public permission. Enter at least one of R, W, U.');
     }
     return { name: n, body };
   };
@@ -118,7 +118,7 @@ function matrixTab(body) {
     toolbar(h('label', 'User ', picker), button('Calculate', () => calculate(picker.value, output), 'primary')), output);
   picker.addEventListener('change', () => calculate(picker.value, output));
   admin.get('/v2/security/users').then((rows) => {
-    // Start with an account whose access is actually interesting (not %All, not an internal user).
+    // Start with an ordinary account (not %All, not an internal user).
     const first = rows.find((u) => u.Name === 'demo_operator') || rows.find((u) => !/^(_|Admin$|SuperUser$|UnknownUser$|CSPSystem$|IAM$)/.test(u.Name)) || rows[0];
     clear(picker, rows.map((u) => h('option', { value: u.Name, selected: first && u.Name === first.Name }, u.Name)));
     if (first) calculate(first.Name, output);
@@ -160,7 +160,7 @@ async function calculate(name, output) {
 const ESSENTIAL_SERVICES = new Set(['%Service_WebGateway']);
 function servicesTab(body) {
   const reload = () => load(body, () => admin.get('/v2/security/services'), (rows) => [
-    h('p.muted', 'Services control how clients connect to IRIS (web gateway, SQL/objects, terminal, call-in, ECP, …). Disable what you do not use to reduce the attack surface.'),
+    h('p.muted', '%Service_* entries: one per way of connecting (Web Gateway, SQL/objects, terminal, call-in, ECP). %Service_WebGateway cannot be disabled here: this UI runs through it.'),
     toolbar(button('Refresh', reload)),
     table([
       { key: 'Name', label: 'Service', render: (r) => h('div', h('strong', r.Name), h('div.muted.small', r.Description || '')) },

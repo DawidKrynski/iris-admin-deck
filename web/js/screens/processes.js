@@ -12,7 +12,7 @@ const safeProcess = (r) => {
 };
 
 export default async function render(el, params) {
-  el.append(page('Processes & locks', 'Inspect active work, locks and web sessions before intervening.',
+  el.append(page('Processes & locks', null,
     tabs([
       { id: 'processes', label: 'Processes', render: processesTab },
       { id: 'locks', label: 'Locks', render: locksTab },

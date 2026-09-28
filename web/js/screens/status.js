@@ -52,7 +52,7 @@ export default async function render(el) {
   const rows = h('div.card');
   const charts = h('div.grid.wide');
   const errors = h('div.card');
-  el.append(page('Status', 'Health, latency and errors over time — sampled on the server every 5 seconds, so the history is there when you open the page.',
+  el.append(page('Status', 'Sampled every 5 s by AdminDeck.Metrics on the server; the last hour is kept.',
     banner, rows, h('div', { style: { marginTop: '14px' } }, charts), h('div', { style: { marginTop: '14px' } }, errors)));
   clear(rows, loading());
   const refreshErrors = async () => {
@@ -69,12 +69,12 @@ export default async function render(el) {
       const series = Object.fromEntries(hist.fields.map((f, i) => [f, hist.points.map((p) => p[i + 1])]));
       series.webRequestsPerSec = rate(hist.points.map((p) => p[0]), series.webRequests, 120);
       const age = hist.points.length ? hist.now - hist.points.at(-1)[0] : 0;
-      if (age > 3 * hist.interval) unknownBanner(banner, `No new samples for ${Math.round(age)} s — the values below are old.`);
+      if (age > 3 * hist.interval) unknownBanner(banner, `No new samples for ${Math.round(age)} s. The values below are stale.`);
       else renderBanner(banner, series);
       renderRows(rows, hist.now, hist.points.map((p) => p[0]), series);
       renderCharts(charts, series, hist.points.map((p) => p[0]));
     } catch (e) {
-      unknownBanner(banner, 'Status unavailable — the metrics could not be read.');
+      unknownBanner(banner, 'Status unavailable: the metrics could not be read.');
       clear(rows, errorBox(e));
     }
     setTimeout(tick, REFRESH_MS);
@@ -164,7 +164,7 @@ async function renderErrors(box) {
       partialBefore ? h('p.muted.small', `Busy log: counts before ${partialBefore.slice(11)}:00 are incomplete (newest ${LOG_LIMIT} entries only).`) : null,
       h('div.hour-bars', hours.map((k) => {
         const c = counts[k];
-        return h('button.hour', { title: `${k}:00 — ${c.err} errors, ${c.warn} warnings`, 'aria-label': `${k}:00: ${c.err} errors, ${c.warn} warnings`, onclick: () => navigate('logs') },
+        return h('button.hour', { title: `${k}:00: ${c.err} errors, ${c.warn} warnings`, 'aria-label': `${k}:00: ${c.err} errors, ${c.warn} warnings`, onclick: () => navigate('logs') },
           h('span.stack', h('span.seg.err', { style: { height: `${(100 * c.err) / top}%` } }), h('span.seg.warn', { style: { height: `${(100 * c.warn) / top}%` } })),
           h('span.hour-label', k.slice(11)));
       })),
