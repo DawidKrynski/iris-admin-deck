@@ -1,5 +1,5 @@
 @charset "UTF-8";
-/* IRIS Admin Deck — single stylesheet, light/dark via tokens (see DESIGN.md: "Hairline console").
+/* IRIS Admin Deck: single stylesheet, light/dark via tokens.
    One neutral gray ladder + one accent (the logo blue); colour is reserved for status. */
 :root {
   --bg: #f7f7f8;          /* canvas: page body and sidebar */

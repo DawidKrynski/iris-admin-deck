@@ -1,90 +1,107 @@
-# IRIS Admin Deck — architecture
+# IRIS Admin Deck: architecture
 
 A single-page management portal for InterSystems IRIS built on the SysAdmin REST API
-(`/api/admin/v2`, IRIS 2026.2+), plus a small extension API for what the SysAdmin API does not expose.
+(`/api/admin/v2`, IRIS 2026.2+), plus a small extension API for the things the SysAdmin API does not expose.
 
-## Constraints that shaped the design
+## Constraints
 
-- `/api/admin` intentionally rejects cross-origin requests, so the UI is a static web application
-  served **by IRIS itself** (`/admindeck`) — same origin, no proxy.
+- `/api/admin` sends no CORS headers, so the UI is a static web application served by IRIS itself
+  (`/admindeck`): same origin, no proxy.
 - The SysAdmin API v2 exists from IRIS 2026.2, so the container image is
   `intersystemsdc/iris-community:2026.2-zpm` (`intersystemsdc/irishealth-community:2026.2-zpm` also works).
-- Authentication is JWT. `/api/admin` issues 60 s access / 900 s refresh tokens; the extension
-  (`/admindeck/api`) is configured with 300 s / 1800 s. The browser keeps only tokens (sessionStorage),
+- Authentication is JWT. `/api/admin` issues 60 s access and 900 s refresh tokens; the extension
+  (`/admindeck/api`) is configured with 300 s / 1800 s. The browser keeps only the tokens (sessionStorage),
   never the password.
+- The API has no object versions or ETags, which is why edits are re-read before writing (see `verify.js`).
 
 ## Components
 
 ```
 browser ──same origin──►  IRIS web server (:52773, published as :52785)
                             ├── /admindeck/        static SPA (index.html, js/, css/, openapi.json)
-                            ├── /api/admin/v2/*    built-in SysAdmin API — every management action
+                            ├── /api/admin/v2/*    built-in SysAdmin API: every management action
                             └── /admindeck/api/*   extension REST (AdminDeck.REST.Dispatch, JWT)
                                   ├── /logs         log files (current + rotated), recurring patterns
+                                  ├── /apperrors    application errors of all namespaces
                                   ├── /os           CPU, memory, disks
+                                  ├── /metrics      last hour of 5 s samples (AdminDeck.Metrics)
                                   └── /search       similar-incident search (IRIS Vector Search)
 ```
 
 ### Frontend (`web/js`)
 
-- Vanilla ES modules, no build step, no runtime dependencies.
-- `api.js` — two JWT clients (`admin`, `ext`) with single-flight refresh and a session generation that
-  discards late refresh results after sign-out; unwraps the `{status, console, result}` envelope;
-  turns `202 Accepted` + `Location` into `{GUID, State: 'Queued'}` and `waitAsync()` polls
-  `/v2/async-result`; redacts password/secret/token fields before anything reaches the API console,
-  previews or `curl`.
-- `ui.js` — DOM helper `h()` (text only, never `innerHTML`), table, tabs, modal, `confirmAction()` with
+- Plain ES modules, no build step, no runtime dependencies.
+- `api.js`: two JWT clients (`admin`, `ext`) with single-flight refresh, and a session generation counter that
+  drops late refresh results after sign-out. It unwraps the `{status, console, result}` envelope, turns
+  `202 Accepted` + `Location` into `{GUID, State: 'Queued'}`, and `waitAsync()` polls `/v2/async-result`.
+  Password, secret and token fields are redacted before anything reaches the API console, previews or `curl`.
+- `ui.js`: the DOM helper `h()` (text only, never `innerHTML`), table, tabs, modal, `confirmAction()` with an
   API-call preview and optional typed confirmation, `objectForm()` + `diff()` for PUT payloads, toasts.
-- `verify.js` — verified changes: re-read before writing (refuse when the fields being changed moved since
-  the form was opened) and read back afterwards (*verified* / *not reflected*); used by every screen through
-  `confirmAction({verify})` and `applyVerified()`. `findInList()` (api.js) reads objects that have no
-  get-by-name endpoint.
-- `actions.js` — the next step offered on an incident in Needs attention and the Timeline (mount a dismounted
-  database, run a failed task again, open a credential / task / user, similar incidents); recognisers are pure.
-- `palette.js` — Ctrl+K command palette over screens, shell actions and objects (users, roles, web apps, tasks).
-- `app.js` — login, persona-grouped navigation filtered by `/api/admin/info` privileges, hash router
-  (each route renders into its own node, open dialogs are closed on navigation), API console.
-- `screens/*.js` — one module per screen: dashboard, webapps, explorer, users, roles (roles, resources,
-  access matrix, services, SQL privileges), secrets (wallet, X.509, SSL/TLS, OAuth2), tasks,
-  processes (processes, locks, web sessions), system (databases, namespaces, journal, devices,
-  license, background jobs), logs (timeline, viewer, recurring problems, similar incidents), audit.
+- `verify.js` (about 90 lines): re-reads the object before writing and refuses when a field being changed has
+  moved since the form was opened, then reads it back afterwards and reports which fields match. Every screen
+  uses it through `confirmAction({verify})` and `applyVerified()`. `findInList()` in `api.js` reads objects that
+  have no get-by-name endpoint.
+- `actions.js`: the action offered next to a problem in Needs attention and the Timeline (mount a dismounted
+  database, run a failed task again, open a credential, task or user, similar incidents). The recognisers are
+  pure functions, tested in `tests/js`.
+- `palette.js`: the Ctrl+K palette over screens, shell actions and objects (users, roles, web apps, tasks).
+- `app.js`: login, grouped navigation filtered by the privileges from `/api/admin/info`, the hash router (each
+  route renders into its own node; open dialogs close on navigation), the API console.
+- `screens/*.js`: one module per screen: dashboard, status, webapps, explorer, users, roles (roles,
+  resources, access matrix, services, SQL privileges), secrets (wallet, X.509, SSL/TLS, OAuth2), tasks,
+  processes (processes, locks, web sessions), system (databases, namespaces, journal, devices, license,
+  background jobs), logs (timeline, viewer, recurring problems, similar incidents), audit.
 
 ### Extension (`src/AdminDeck`, `python/admindeck`)
 
-- `AdminDeck.REST.Dispatch` — routes; every endpoint requires `%Admin_Operate:USE`.
-- `AdminDeck.Util` — allow-list of log files in the manager directory plus rotated
-  `messages.old_*` / `alerts.old_*` files (validated by pattern and existence); nothing else can be opened.
-- `AdminDeck.AppErrors` — application errors of every namespace via `SYS.ApplicationError`
-  (bounded to the newest N, query failures surface as errors, not as an empty log).
-- `AdminDeck.Logs`, `AdminDeck.OS` — thin ObjectScript wrappers over Embedded Python
-  (`python/admindeck`, copied to `<mgr>/python/admindeck` by IPM):
-  - `logparse.py` — parses IRIS log lines (with continuation lines), filters, and groups messages into
-    patterns (numbers, paths, quoted values normalised);
-  - `osinfo.py` — `/proc/stat`, `/proc/meminfo`, cgroup memory limit, `os.statvfs` (Linux / containers);
-  - `embed.py` — deterministic 256-dimension embeddings by feature hashing (word unigrams, bigrams,
-    character trigrams), L2-normalised; no model download.
-- `AdminDeck.Data.LogLine` — `%Vector(DATATYPE="DOUBLE", LEN=256)` column with an HNSW index
-  (`%SQL.Index.HNSW`, cosine); `AdminDeck.VectorSearch` rebuilds a file's index in one transaction and
-  queries `ORDER BY VECTOR_COSINE(...) DESC`.
-- `AdminDeck.Task.ReindexLogs` — Task Manager task (daily 03:15) created by `AdminDeck.Installer`.
-- `AdminDeck.Installer` — enables JWT and password authentication on `/admindeck/api`, short static-file
-  expiry on `/admindeck`, schedules the task and builds the initial index.
+- `AdminDeck.REST.Dispatch`: routes. Every endpoint requires `%Admin_Operate:USE`.
+- `AdminDeck.Util`: allow-list of log files in the manager directory plus rotated `messages.old_*` /
+  `alerts.old_*` files, checked by pattern and existence. Nothing else can be opened.
+- `AdminDeck.AppErrors`: application errors of every namespace via `SYS.ApplicationError`, limited to the newest
+  N. A failed query is reported as an error, not as an empty log.
+- `AdminDeck.Metrics`: a background job that samples global references, CPU and the monitoring metrics every
+  5 s and keeps 720 samples (one hour). It reads the metrics in-process through
+  `SYS.Monitor.SAM.Sensors.PrometheusMetrics()`, the call behind `/api/monitor/metrics`, so it does not depend
+  on the web server port.
+- `AdminDeck.Logs`, `AdminDeck.OS`: thin ObjectScript wrappers over Embedded Python (`python/admindeck`,
+  copied to `<mgr>/python/admindeck` by IPM):
+  - `logparse.py` parses IRIS log lines (including continuation lines), filters them, and groups messages into
+    patterns with numbers, paths and quoted values masked;
+  - `osinfo.py` reads `/proc/stat`, `/proc/meminfo`, the cgroup memory limit and `os.statvfs`;
+  - `embed.py` computes deterministic 256-dimension vectors by feature hashing (word unigrams and bigrams,
+    character trigrams), L2-normalised. No model download.
+- `AdminDeck.Data.LogLine`: a `%Vector(DATATYPE="DOUBLE", LEN=256)` column with an HNSW index
+  (`%SQL.Index.HNSW`, cosine). `AdminDeck.VectorSearch` rebuilds a file's index in one transaction and
+  queries it with `ORDER BY VECTOR_COSINE(...) DESC`.
+- `AdminDeck.Task.ReindexLogs`: Task Manager task (daily 03:15) created by `AdminDeck.Installer`.
+- `AdminDeck.Installer`: enables JWT and password authentication on `/admindeck/api`, sets a short
+  static-file expiry on `/admindeck`, schedules the task and builds the initial index.
+
+## Known limits
+
+- The pre-write check is not a lock. A change made between the re-read and the write (a few milliseconds)
+  is not detected.
+- Similar incidents is lexical. It matches the same message with different numbers or paths, not a
+  paraphrase ("disk full" vs "no space left on device").
+- `logparse.py` parses only the last 8 MB of a file (`MAX_BYTES`).
+- OS metrics need `/proc`, i.e. Linux or a Linux container.
+- One instance per browser tab; there is no multi-instance view.
 
 ## Packaging
 
-- IPM: `module.xml` — ObjectScript sources, `FileCopy` of the UI and the Python package, two
-  `WebApplication`s, unit tests, `Invoke` of the installer.
-- Docker: `Dockerfile` loads the module, seeds demo data through the SysAdmin API
+- IPM: `module.xml` lists the ObjectScript sources, a `FileCopy` of the UI and the Python package, two
+  `WebApplication`s, the unit tests, and an `Invoke` of the installer.
+- Docker: the `Dockerfile` loads the module, seeds demo data through the SysAdmin API
   (`scripts/demo_seed.py`, `--build-arg DEMO=0` to skip) and marks the image initialised.
 
 ## Tests
 
-- `tests/js` — `node --test`: verified-change logic and palette ranking.
-- `python/tests` — pytest for parsing, grouping and embeddings.
-- `tests/AdminDeck/Tests` — `%UnitTest` for the allow-list, log queries, embeddings, vector search, OS,
-  application errors.
-- `tests/integration` — `unittest` against a running instance: every SysAdmin endpoint the UI reads,
-  background tasks (202 + async-result), all write flows on throw-away objects, extension API, security.
-- `tests/e2e` — Playwright: every screen and tab, palette, verified create/edit, stale-edit refusal,
-  typed-confirm delete, timeline statuses.
-- `scripts/smoke.sh` — quick end-to-end checks against a running instance.
+- `tests/js`: `node --test` for the edit-check logic, incident actions and palette ranking.
+- `python/tests`: pytest for parsing, grouping and embeddings.
+- `tests/AdminDeck/Tests`: `%UnitTest` for the allow-list, log queries, embeddings, vector search, OS metrics,
+  application errors, hidden host details and the metrics sampler.
+- `tests/integration`: `unittest` against a running instance: the SysAdmin endpoints the UI reads, async
+  tasks (202 + async-result), the write flows on throw-away objects, the extension API, auth and CORS.
+- `tests/e2e`: Playwright over every screen and tab, the palette, create/edit with read-back, the stale-edit
+  refusal, typed-confirm delete and the timeline source statuses.
+- `scripts/smoke.sh`: quick end-to-end checks against a running instance.
