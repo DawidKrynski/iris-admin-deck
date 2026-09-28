@@ -263,6 +263,17 @@ def run_ui_checks(page):
     assert '"username": "SuperUser"' in response, response[:500]
     print("ok   REST APIs on this instance: routes of /admindeck/api, GET /whoami 200")
 
+    # 10. Status checks: the demo's dismounted REPORTS is a failing check, listed first, with a Mount button.
+    page.goto(f"{UI}#/status")
+    card = page.locator("main .card.checks")
+    card.locator(".check-row").first.wait_for(timeout=60_000)
+    row = card.locator(".check-row[data-check='dismounted']")
+    assert "fail" in row.get_attribute("class").split(), row.inner_text()
+    assert "REPORTS" in row.inner_text() and "failing" in row.inner_text(), row.inner_text()
+    expect(row.locator("button:has-text('Mount')")).to_be_visible()
+    assert "fail" in card.locator(".check-row").first.get_attribute("class").split(), "failing checks come first"
+    print("ok   status checks: REPORTS dismounted is failing, with Mount")
+
 
 if __name__ == "__main__":
     main()

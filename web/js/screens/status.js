@@ -1,9 +1,12 @@
 // Status: is the instance healthy right now, and how did it behave over the last hour?
 // Health and latency come from the server-side sampler (AdminDeck.Metrics: the monitoring metrics IRIS
 // publishes, every 5 seconds); errors over time from messages.log and the application error log.
-import { ext } from '../api.js';
-import { navigate } from '../app.js';
-import { h, clear, page, errorBox, loading, sparkline, button } from '../ui.js';
+// Checks: one row per known risk (checks.js), with the evidence and a fix.
+import { admin, ext } from '../api.js';
+import { navigate, can } from '../app.js';
+import { h, clear, page, errorBox, loading, sparkline, button, badge } from '../ui.js';
+import { evaluate, tally } from '../checks.js';
+import { nextSteps, openLink, mountStep, runAgainStep } from '../actions.js';
 
 const REFRESH_MS = 5000;
 const ERRORS_REFRESH_MS = 60000;
@@ -49,11 +52,12 @@ const fmt = (v) => (v >= 100 ? Math.round(v).toLocaleString('en-US') : String(+v
 
 export default async function render(el) {
   const banner = h('div.status-banner');
+  const checks = h('div.card.checks');
   const rows = h('div.card');
   const charts = h('div.grid.wide');
   const errors = h('div.card');
   el.append(page('Status', 'Sampled every 5 s by AdminDeck.Metrics on the server; the last hour is kept.',
-    banner, rows, h('div', { style: { marginTop: '14px' } }, charts), h('div', { style: { marginTop: '14px' } }, errors)));
+    banner, checks, h('div', { style: { marginTop: '14px' } }, rows), h('div', { style: { marginTop: '14px' } }, charts), h('div', { style: { marginTop: '14px' } }, errors)));
   clear(rows, loading());
   const refreshErrors = async () => {
     if (!el.isConnected) return;
@@ -61,6 +65,12 @@ export default async function render(el) {
     setTimeout(refreshErrors, ERRORS_REFRESH_MS);
   };
   refreshErrors();
+  const refreshChecks = async () => {
+    if (!el.isConnected) return;
+    await renderChecks(checks);
+    setTimeout(refreshChecks, ERRORS_REFRESH_MS);
+  };
+  refreshChecks();
 
   const tick = async () => {
     if (!el.isConnected) return;
@@ -173,4 +183,78 @@ async function renderErrors(box) {
   } catch (e) {
     clear(box, h('h2', 'Warnings and errors per hour'), errorBox(e));
   }
+}
+
+// ---------- checks ----------
+const CHECK_LEVEL = { fail: 'err', warn: 'warn', ok: 'ok', unknown: 'none' };
+const CHECK_LABEL = { fail: 'failing', warn: 'warning', ok: 'ok', unknown: 'not checked' };
+
+// Reads one source for the checks: { unavailable: reason } without the privilege or when the call fails.
+function source(privs, read) {
+  if (privs && !can(...privs)) return Promise.resolve({ unavailable: `Needs the ${privs.join(' or ')} privilege.` });
+  // A missing SQL privilege comes back as a 500 with "not privileged" in the text (backups): it is still a permission.
+  return read().catch((e) => ({ unavailable: e && (e.status === 401 || e.status === 403 || /not privileged/i.test(e.message || ''))
+    ? 'Your user may not read this.' : `The source is unavailable (${(e && e.message) || e}).` }));
+}
+
+// Databases: the file list joined with the definitions (names), plus journaling from each database-dir.
+async function readDatabases() {
+  const [dirs, defs] = await Promise.all([admin.get('/v2/database-dirs'), admin.get('/v2/databases').catch(() => [])]);
+  const rows = (Array.isArray(dirs) ? dirs : []).map((r) => ({ ...r, Name: (defs.find((d) => d.Directory === r.Directory) || {}).Name }));
+  await Promise.all(rows.map((r) => admin.get('/v2/database-dir', { dir: r.Directory })
+    .then((d) => { r.GlobalJournalState = !!d.GlobalJournalState; if (d.ReadOnly) r.ReadOnly = true; }, () => {})));
+  return rows;
+}
+
+async function readCertificates() {
+  const creds = await admin.get('/v2/security/x509-credentials');
+  return Promise.all(creds.map((c) => admin.get('/v2/security/x509-credential/certificate', { alias: c.Alias })
+    .then((cert) => ({ alias: c.Alias, date: cert.ValidityNotAfter }), () => ({ alias: c.Alias, date: null }))));
+}
+
+async function renderChecks(box) {
+  const refresh = () => renderChecks(box);
+  if (!box.childElementCount) clear(box, h('h2', 'Checks'), loading());
+  const dashboard = source(['Operate'], () => admin.get('/v2/monitor/dashboard/main'));
+  const part = (key) => dashboard.then((m) => (m.unavailable ? m : key(m)));
+  const [databases, certificates, backups, tasks, taskHistory, taskManager, licensing, journalSpace, disks, metrics, audit] = await Promise.all([
+    source(['Manage', 'Operate'], readDatabases),
+    source(['Secure'], readCertificates),
+    source(['Operate'], () => ext.get('/backups', { limit: 50 })),
+    source(['Operate', 'Task'], () => admin.get('/v2/tasks')),
+    source(['Operate', 'Task'], () => admin.get('/v2/task/history', { maxRows: 300 })),
+    source(['Operate', 'Task'], () => admin.get('/v2/task/manager')),
+    part((m) => m.Licensing || { unavailable: 'IRIS reports no license data.' }),
+    part((m) => (m.SystemUsage || {}).JournalSpace || ''),
+    source(['Operate'], () => ext.get('/os').then((os) => os.disks || [])),
+    // The first read starts a stopped sampler: without samples, read again after one interval.
+    source(['Operate'], () => ext.get('/metrics').then((m) => (m.points.length ? m
+      : new Promise((r) => setTimeout(r, (m.interval + 1) * 1000)).then(() => ext.get('/metrics'))))),
+    source(['Secure'], () => admin.get('/v2/security/audit/enabled')),
+  ]);
+  let rows;
+  try {
+    rows = evaluate({ databases, certificates, backups, tasks, taskHistory, taskManager, licensing, journalSpace, disks, metrics, audit });
+  } catch (e) {
+    clear(box, h('h2', 'Checks'), errorBox(e));
+    return;
+  }
+  const n = tally(rows);
+  clear(box,
+    h('h2', 'Checks', h('span.muted.small', [n.fail && `${n.fail} failing`, n.warn && `${n.warn} warnings`,
+      n.unknown && `${n.unknown} not checked`, `${n.ok} ok`].filter(Boolean).join(' · '))),
+    rows.map((r) => h(`div.check-row.${r.state}`, { 'data-check': r.id },
+      h('div.check-name', h(`span.status-dot.${CHECK_LEVEL[r.state]}`), h('strong', r.title)),
+      h('div.check-state', badge(CHECK_LABEL[r.state], CHECK_LEVEL[r.state] === 'none' ? 'muted' : CHECK_LEVEL[r.state])),
+      h('div.check-body',
+        h('div', r.evidence),
+        r.state === 'ok' ? null : h('div.muted.small', r.advice, nextSteps(r.steps.map((s) => step(s, refresh))))))),
+    h('p.muted.small', 'Read once a minute from data this app already shows. A check is not run when your user may not read its source.'));
+}
+
+// A step descriptor of checks.js as a link or button of actions.js; writes only with the privilege.
+function step(s, refresh) {
+  if (s.kind === 'mount') return can('Operate') ? mountStep(s.dir, refresh) : null;
+  if (s.kind === 'run') return can('Task') ? runAgainStep(s.id, s.name) : null;
+  return openLink(s.label, s.hash);
 }

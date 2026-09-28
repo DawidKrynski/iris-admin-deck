@@ -100,7 +100,8 @@ function renderHealth(box, m) {
   const bad = checks.filter(([, v]) => !OK_WORDS.has(v) && v !== 'Stopped');
   clear(box,
     h('h2', 'Health checks', bad.length ? badge(`${bad.length} to review`, 'warn') : badge('All normal', 'ok')),
-    h('dl.kv', checks.map(([k, v]) => [h('dt', k), h('dd', badge(v, OK_WORDS.has(v) ? 'ok' : v === 'Stopped' ? 'muted' : 'warn'))])));
+    h('dl.kv', checks.map(([k, v]) => [h('dt', k), h('dd', badge(v, OK_WORDS.has(v) ? 'ok' : v === 'Stopped' ? 'muted' : 'warn'))])),
+    h('p.muted.small', h('a', { href: '#/status' }, 'All checks, with evidence and fixes →')));
 }
 
 function renderResources(box, os, lic) {

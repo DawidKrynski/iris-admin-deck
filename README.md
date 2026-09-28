@@ -118,7 +118,7 @@ Then open `http://<host>:<port>/admindeck/index.html`. The package creates two w
 | Screen | What you can do there |
 | --- | --- |
 | Dashboard | Health checks, global refs/s and CPU charts, CPU/memory/disk, license use, upcoming tasks, and a "needs attention" list (errors, certificates expiring soon, dismounted databases, recurring log warnings) |
-| Status | One row per component (instance state, Web Gateway latency, database read latency, SQL runtime, CPU) with a bar per minute for the last hour, plus warnings/errors per hour for the last day |
+| Status | Checks first: about ten of them (dismounted databases, journaling, size limits, certificates, backups, failed and suspended tasks, license, disk and journal space, the metrics sampler, auditing), failing ones on top, each with the object and number it is based on, one sentence of advice and a fix, or why it was not checked. Then one row per component (instance state, Web Gateway latency, database read latency, SQL runtime, CPU) with a bar per minute for the last hour, plus warnings/errors per hour for the last day |
 | Web apps & REST | List, create from a REST or static preset, edit, enable/disable, delete. System applications can't be deleted |
 | Users, Roles & permissions | Users, roles, resources, `%Service_*` services, an access matrix (which role or public permission gives a user each resource), SQL object/column/admin privileges |
 | Secrets & certificates | Wallet collections and secrets (write-only values), X.509 credentials with expiry, SSL/TLS configurations with a test, OAuth2 server definitions and client configurations |

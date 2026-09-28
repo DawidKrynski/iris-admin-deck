@@ -380,7 +380,15 @@ button.hour:hover:not(:disabled) { background: none; }
 .legend { display: inline-flex; align-items: center; color: var(--muted); }
 .legend::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
 .legend.err::before { background: var(--err); } .legend.warn::before { background: var(--warn); }
+/* status → checks (checks.js): failing rows first, evidence and the fix on each */
+.check-row { display: grid; grid-template-columns: 200px 100px 1fr; gap: 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--border); }
+.check-name { display: flex; align-items: center; gap: 8px; }
+.check-name strong { font-weight: 500; }
+.check-body { min-width: 0; overflow-wrap: anywhere; }
+.check-body .muted.small { margin-top: 3px; }
 @media (max-width: 860px) {
+  .check-row { grid-template-columns: 1fr auto; }
+  .check-body { grid-column: 1 / -1; }
   .status-row { grid-template-columns: 1fr auto; }
   .status-bars { grid-column: 1 / -1; }
   .status-uptime { display: none; }
