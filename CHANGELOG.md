@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3 — 2026-09-28
+
+- README: no in-page links. Open Exchange renders headings without anchors, so links such as "A morning on
+  call" went nowhere there.
+
 ## 1.0.2 — 2026-09-28
 
 - The extension API decodes request bodies as UTF-8. The change log stored text with typographic quotes
