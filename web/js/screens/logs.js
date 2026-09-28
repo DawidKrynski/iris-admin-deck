@@ -10,8 +10,11 @@ import { dismountedDirs, dismountedIn, loginFailureBursts, nextSteps, openLink, 
 const PAGE = 200;
 
 export default async function render(el, params) {
-  const [fileParam, qParam] = params || [];
-  // #/logs/timeline/<text> opens the cross-subsystem timeline filtered by <text>
+  const [first, qParam] = params || [];
+  // #/logs/timeline/<text>: timeline filtered by <text>; #/logs/viewer|insights|similar: that tab;
+  // #/logs/<file>/<text>: log viewer on <file> filtered by <text>.
+  const tab = ['viewer', 'insights', 'similar'].includes(first) ? first : null;
+  const fileParam = tab ? null : first;
   const timelineQuery = fileParam === 'timeline' ? (qParam || '') : null;
   const state = { file: fileParam && fileParam !== 'timeline' ? fileParam : 'messages', q: timelineQuery === null ? (qParam || '') : '', severity: 0, source: '', offset: 0, files: [] };
   let files = [];
@@ -21,13 +24,13 @@ export default async function render(el, params) {
 
   const body = h('div');
   el.append(page('Logs & insights', null, body));
-  let similarQuery = '';
+  let similarQuery = tab === 'similar' ? (qParam || '') : '';
   const t = tabs([
     { id: 'timeline', label: 'Timeline', render: (b) => timeline(b, timelineQuery || '', (text) => { similarQuery = text; switchTab('similar'); }) },
     { id: 'viewer', label: 'Log viewer', render: (b) => viewer(b, state, (text) => { similarQuery = text; switchTab('similar'); }) },
     { id: 'insights', label: 'Recurring problems', render: (b) => insights(b, state, (pattern) => { state.q = pattern; state.offset = 0; switchTab('viewer'); }) },
     { id: 'similar', label: 'Similar incidents', render: (b) => similar(b, state, similarQuery) },
-  ], timelineQuery !== null || !fileParam ? 'timeline' : 'viewer');
+  ], tab || (timelineQuery !== null || !fileParam ? 'timeline' : 'viewer'));
   body.append(t);
   function switchTab(id) { t.querySelector(`.tab[data-id="${id}"]`).click(); }
 }

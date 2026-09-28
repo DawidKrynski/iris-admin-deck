@@ -1,5 +1,6 @@
 import { admin, findInList } from '../api.js';
 import { can } from '../app.js';
+import { systemProcess } from '../iris.js';
 import { h, page, table, tabs, load, modal, confirmAction, kv, badge, toastError, button, toolbar, clear, errorBox } from '../ui.js';
 
 const queryPath = (path, query) => `/api/admin${path}?${new URLSearchParams(query)}`;
@@ -38,6 +39,11 @@ function processesTab(body) {
       ], rows || [], {
         sortKey: 'Pid', empty: 'No matching processes.', onRow: (r) => processDetails(r, reload),
         actions: can('Operate') ? (r) => {
+          const daemon = systemProcess(r);
+          if (daemon) {
+            const role = daemon.includes(': ') ? daemon.split(': ')[1].split(',')[0] : 'system process'; // "write daemon"
+            return [h('span.muted.small', { title: `${daemon}. IRIS does not let it be suspended or terminated.` }, role), button('Details', () => processDetails(r, reload), 'small')];
+          }
           const reason = safeProcess(r);
           return [button('Details', () => processDetails(r, reload), 'small'),
             /SUSP/i.test(String(r.State || ''))
@@ -66,9 +72,11 @@ async function processDetails(row, reload) {
   try {
     const detail = await readProcess(row.Pid);
     const reason = safeProcess({ ...row, ...detail });
+    const daemon = systemProcess({ ...row, ...detail });
     clear(content,
-      reason ? h('p.muted', `Terminate unavailable: ${reason}`) : null,
-      can('Operate') ? toolbar(
+      daemon ? h('p.muted', `${daemon}. IRIS does not let it be suspended or terminated.`)
+        : reason ? h('p.muted', `Terminate unavailable: ${reason}`) : null,
+      can('Operate') && !daemon ? toolbar(
         detail.CanBeSuspended !== false ? button('Suspend', () => processAction(row, 'suspend', reload)) : null,
         button('Resume', () => processAction(row, 'resume', reload)),
         !reason ? button('Terminate', () => processAction(row, 'terminate', reload), 'danger') : null) : null,

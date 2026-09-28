@@ -1,6 +1,7 @@
-import { admin, ext, findInList, waitAsync, ApiError } from '../api.js';
+import { admin, ext, findInList, waitAsync, ApiError, monitorMetrics } from '../api.js';
 import { can } from '../app.js';
 import { h, page, table, tabs, load, modal, confirmAction, applyVerified, objectForm, diff, kv, badge, fmtBytes, button, toolbar, clear, errorBox, toast, toastError, apiCallPreview, icon, loading } from '../ui.js';
+import { parseMetrics, byLabel, READ_ONLY_BY_DEFAULT } from '../iris.js';
 import { RECORD_TYPES, PAGE_SIZE, conditions, recordsQuery, refine, nextOffset, globalRef, recordValues } from '../journal.js';
 
 // Databases this deck never deletes, dismounts or makes read-only.
@@ -61,26 +62,71 @@ export default async function render(el, params) {
 
 function databasesTab(body) {
   const reload = () => load(body, async () => {
-    const [local, config] = await Promise.all([admin.get('/v2/database-dirs'), admin.get('/v2/databases')]);
+    const [local, config, metrics] = await Promise.all([admin.get('/v2/database-dirs'), admin.get('/v2/databases'),
+      monitorMetrics().then(parseMetrics, () => ({}))]);
     const cfg = Array.isArray(config) ? config : [];
     const locals = Array.isArray(local) ? local : local?.Directory ? [local] : [];
     const dirs = new Set(locals.map((r) => r.Directory));
+    // Free space (MB) is only in /api/monitor/metrics; journaling only in each /v2/database-dir.
+    const free = byLabel(metrics, 'iris_db_free_space');
     return [...locals.map((r) => {
       const match = cfg.find((c) => c.Directory === r.Directory);
-      return { ...match, ...r, Name: match?.Name || r.Name || r.Directory?.split('/').filter(Boolean).at(-1), Local: true, Configured: !!match };
+      const name = match?.Name || r.Name || r.Directory?.split('/').filter(Boolean).at(-1);
+      return { ...match, ...r, Name: name, Local: true, Configured: !!match, Free: free[String(name).toUpperCase()] };
     }), ...cfg.filter((r) => !dirs.has(r.Directory)).map((r) => ({ ...r, Local: false, Configured: true }))];
-  }, (rows) => [toolbar(
+  }, (rows) => { const journalCell = journalColumn(); return [toolbar(
     can('Manage') ? button([icon('plus'), 'New database'], () => databaseCreate(rows, reload).catch(toastError), 'primary') : null,
     button('Refresh', reload)), table([
     { key: 'Name', label: 'Database' }, { key: 'Directory', label: 'Directory' },
     { key: 'Size', label: 'Size', render: (r) => r.Size === undefined ? '—' : `${r.Size} MB` },
+    { key: 'MaxSize', label: 'Max size', render: (r) => r.MaxSize === undefined ? '—' : /^\d+$/.test(r.MaxSize) && +r.MaxSize ? `${r.MaxSize} MB` : 'Unlimited' },
+    { key: 'Free', label: 'Free', render: freeCell },
+    { key: 'Journal', label: 'Journal', render: journalCell },
     { key: 'Status', label: 'Status', render: (r) => badge(r.Status || '—', /mount/i.test(r.Status || '') ? 'ok' : 'warn') },
-    { key: 'ReadOnly', label: 'Read-only', render: (r) => (r.ReadOnly || /\/R$/.test(String(r.Status || '')) ? badge('Yes', 'warn') : 'No') },
+    { key: 'ReadOnly', label: 'Read-only', render: readOnlyCell },
     { key: 'Encrypted', label: 'Encrypted', render: (r) => r.Encrypted ? badge('Yes', 'ok') : 'No' },
   ], rows, { empty: 'No local databases.', onRow: (r) => databaseDetails(r, reload),
     actions: (r) => [button('Details', () => databaseDetails(r, reload), 'small')],
-  })]);
+  })]; });
   reload();
+}
+
+// Journaling is only in each /v2/database-dir: the table shows at once and the column fills in,
+// four requests at a time; a re-render (sort, filter, page) reuses the answers.
+function journalColumn() {
+  const answers = new Map(); const waiting = []; let active = 0;
+  const pump = () => {
+    while (active < 4 && waiting.length) {
+      active++;
+      waiting.shift()().finally(() => { active--; pump(); });
+    }
+  };
+  const state = (dir) => {
+    if (!answers.has(dir)) {
+      answers.set(dir, new Promise((resolve) => waiting.push(() => readDbDir(dir)
+        .then((d) => resolve(d.GlobalJournalState ? 'Yes' : 'No'), () => resolve('—')))));
+      pump();
+    }
+    return answers.get(dir);
+  };
+  return (r) => {
+    if (!r.Local) return '—';
+    const el = h('span', '…');
+    state(r.Directory).then((text) => { el.textContent = text; });
+    return el;
+  };
+}
+
+function freeCell(r) {
+  if (r.Free === undefined) return '—';
+  const pct = r.Size ? Math.round(100 * r.Free / r.Size) : null;
+  return h('span', { title: 'Free space inside the database file (/api/monitor/metrics, iris_db_free_space)' }, `${r.Free} MB${pct === null ? '' : ` (${pct}%)`}`);
+}
+
+// IRISLIB, ENSLIB and HSLIB ship read-only; any other read-only database is worth a look.
+function readOnlyCell(r) {
+  if (!(r.ReadOnly || /\/R$/.test(String(r.Status || '')))) return 'No';
+  return READ_ONLY_BY_DEFAULT.has(String(r.Name).toUpperCase()) ? h('span', { title: 'Shipped read-only' }, 'Yes') : badge('Yes', 'warn');
 }
 
 // Where databases are used: namespace defaults and global/routine/package mappings of every namespace.

@@ -1,6 +1,7 @@
 // Dashboard: /v2/monitor/dashboard/main, the extension's /os and /metrics, refreshed every 5 s.
-import { admin, ext } from '../api.js';
-import { navigate, can } from '../app.js';
+import { admin, ext, monitorMetrics } from '../api.js';
+import { navigate, can, session } from '../app.js';
+import { versionLabel, platformLabel, mirrorLabel, licenseUnits, parseMetrics } from '../iris.js';
 import { h, clear, page, meter, badge, fmtBytes, fmtDuration, severityBadge, errorBox, loading, sparkline } from '../ui.js';
 import { dismountedDirs, nextSteps, openLink, mountStep, backupFinding, BACKUP_MAX_AGE_DAYS } from '../actions.js';
 
@@ -10,12 +11,16 @@ const HISTORY = 360; // last 30 minutes of the server-side sampler (AdminDeck.Me
 export default async function render(el) {
   let series = { grefs: [], cpu: [] };
   const summary = h('p.dash-summary.muted.small');
+  // Instance strip in the subtitle slot: version, platform, system mode, mirror, namespaces, IRIS uptime.
+  const strip = h('span.instance-strip');
+  let mirror = null;
+  monitorMetrics().then((t) => { mirror = mirrorLabel((parseMetrics(t).iris_mirror_member_type || [])[0]?.value); }, () => {});
   const healthCard = h('div.card');
   const resCard = h('div.card');
   const liveCard = h('div.card');
   const attnCard = h('div.card');
   const tasksCard = h('div.card');
-  el.append(page('Dashboard', null,
+  el.append(page('Dashboard', strip,
     h('div.grid.wide', liveCard, resCard, healthCard, attnCard, tasksCard),
     summary));
   clear(liveCard, loading());
@@ -36,6 +41,7 @@ export default async function render(el) {
         const m = main.value;
         if (!recent) push(series.grefs, m.Performance && m.Performance.GlobalRefsPerSecond);
         renderSummary(summary, m);
+        renderStrip(strip, m, mirror);
         renderHealth(healthCard, m);
         renderTasks(tasksCard, m.UpcomingTasks || []);
       } else if (first) {
@@ -64,8 +70,17 @@ function push(arr, v) {
 
 function renderSummary(box, m) {
   const su = m.SystemUsage || {};
-  clear(box, `IRIS up ${shortUptime(m.Status && m.Status.UpTime)} · last backup: ${(m.Status && m.Status.LastBackup) || 'never'} · `,
+  clear(box, `Last backup: ${(m.Status && m.Status.LastBackup) || 'never'} · `,
     h('a', { href: '#/processes' }, `${num(su.Processes)} processes`), ` · ${num(su.CSPSessions)} web sessions`);
+}
+
+// The SysAdmin API has no instance name; /api/admin/info gives the version, system mode and namespaces.
+function renderStrip(box, m, mirror) {
+  const info = session.info || {};
+  const ns = (info.namespaces || []).length;
+  clear(box, [versionLabel(info.serverVersion), platformLabel(info.serverVersion),
+    `system mode: ${info.systemMode || 'not set'}`, mirror ? `mirror: ${mirror}` : null,
+    ns ? `${ns} namespaces` : null, `IRIS up ${shortUptime(m.Status && m.Status.UpTime)}`].filter(Boolean).join(' · '));
 }
 
 // "0d 0h 31m" -> "31m", "2d 4h 5m" -> "2d 4h 5m"
@@ -94,13 +109,16 @@ function renderResources(box, os, lic) {
   const disks = (os.disks || []).filter((d) => !d.sameFilesystemAs);
   // LicenseUse is a percentage of LicenseLimit (license units), "" when there is no limit.
   const licPct = Number(lic.LicenseUse) || 0;
+  // In Docker the host name is the container ID: say "container" instead of showing the hash.
+  const host = /^[0-9a-f]{12}$/.test(os.hostname || '') ? 'container' : os.hostname;
   clear(box,
-    h('h2', 'Resources', os.hostname ? h('span.muted.small', `${os.hostname} · up ${fmtDuration(os.uptimeSec)}`) : null),
+    h('h2', 'Resources', os.hostname ? h('span.muted.small', { title: os.hostname }, `${host} up ${fmtDuration(os.uptimeSec)}`) : null),
     row('CPU', `${os.cpu.usagePct}% · ${os.cpu.cores} cores`, os.cpu.usagePct),
     row('Memory', `${fmtBytes(mem.used)} of ${fmtBytes(mem.total)}${mem.containerLimit ? ` (limit ${fmtBytes(mem.containerLimit)})` : ''}`, mem.usedPct),
     disks.map((d) => row(disks.length > 1 ? `Disk · ${d.label}` : 'Disk', `${fmtBytes(d.free)} free of ${fmtBytes(d.total)}`, d.usedPct, d.path)),
-    lic.LicenseLimit && lic.LicenseUse !== '' ? row('License units', `${licPct}% of ${lic.LicenseLimit}`, licPct,
-      'Concurrent users/connections the license allows; new ones are refused when it is full') : null);
+    lic.LicenseLimit && lic.LicenseUse !== '' ? row('License units', `${licenseUnits(licPct, lic.LicenseLimit)} of ${lic.LicenseLimit} in use`
+      + (lic.LicenseUseHigh ? ` · peak ${licenseUnits(lic.LicenseUseHigh, lic.LicenseLimit)}` : ''), licPct,
+      'License units in use; new connections are refused when all are taken') : null);
 }
 
 function row(label, text, pct, title) {

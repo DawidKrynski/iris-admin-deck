@@ -1,6 +1,7 @@
 import { admin } from '../api.js';
 import { can } from '../app.js';
-import { h, page, table, load, modal, confirmAction, applyVerified, objectForm, diff, kv, badge, toast, toastError, apiCallPreview, button, toolbar, clear, icon } from '../ui.js';
+import { authMethods } from '../iris.js';
+import { h, page, table, load, modal, confirmAction, applyVerified, objectForm, diff, fmtValue, badge, toast, toastError, apiCallPreview, button, toolbar, clear, icon } from '../ui.js';
 
 const FIELDS = [
   { key: 'Description', type: 'textarea' }, { key: 'NameSpace', label: 'Namespace', required: true },
@@ -18,11 +19,47 @@ const protectedApp = (name) => /^\/csp\/sys(?:\/|$)|^\/api\/admin(?:\/|$)|^\/adm
 const kind = (a) => a.DispatchClass ? 'REST' : /wsgi/i.test(a.Type || '') ? 'WSGI' : 'CSP/static';
 function authNames(a) {
   if (Array.isArray(a.AuthenticationMethods)) return a.AuthenticationMethods.join(', ') || '—';
-  const bits = Number(a.AutheEnabled || 0);
-  const names = AUTH.filter(([bit]) => bits & bit).map(([, name]) => name);
-  const rest = bits & ~AUTH.reduce((n, [bit]) => n | bit, 0);
-  if (rest) names.push(`Other: ${rest}`);
-  return names.join(', ') || '—';
+  return authMethods(a.AutheEnabled).join(', ') || '—';
+}
+
+// Details grouped like the SMP web application page. [property, label, format?]
+const seconds = (v) => (v === '' || v === undefined ? '—' : `${v} s`);
+const SECTIONS = [
+  ['General', [['Description'], ['NameSpace', 'Namespace'], ['Enabled'], ['DispatchClass', 'Dispatch class'],
+    ['Path', 'CSP files path'], ['Recurse', 'Include subdirectories'], ['ServeFiles', 'Serve files'],
+    ['ServeFilesTimeout', 'Serve files timeout', seconds], ['IsNameSpaceDefault', 'Namespace default'],
+    ['RedirectEmptyPath', 'Redirect empty path'], ['AutoCompile', 'Auto compile'], ['LockCSPName', 'Lock CSP name']]],
+  ['Security', [['AutheEnabled', 'Allowed authentication', (v) => `${authMethods(v).join(', ') || 'none'} (${v})`],
+    ['JWTAuthEnabled', 'JWT authentication'], ['JWTAccessTokenTimeout', 'JWT access token timeout', seconds],
+    ['JWTRefreshTokenTimeout', 'JWT refresh token timeout', seconds], ['TwoFactorEnabled', 'Two-factor'],
+    ['Resource', 'Required resource'], ['MatchRoles', 'Application roles', matchRoles], ['PermittedClasses', 'Permitted classes'],
+    ['CSRFToken', 'CSRF token'], ['CorsAllowlist', 'CORS allowlist'], ['CorsCredentialsAllowed', 'CORS credentials'],
+    ['CorsHeadersList', 'CORS headers']]],
+  ['Session', [['Timeout', 'Session timeout', seconds], ['UseCookies', 'Use cookie for session'], ['CookiePath', 'Session cookie path'],
+    ['SessionScope', 'Session cookie scope'], ['UserCookieScope', 'User cookie scope'], ['GroupById', 'Group by ID'],
+    ['EventClass', 'Event class'], ['SuperClass', 'Super class'], ['Package', 'Default package'], ['LoginPage', 'Login page'],
+    ['ChangePasswordPage', 'Change password page'], ['ErrorPage', 'Custom error page']]],
+  ['Enabled for', [['CSPZENEnabled', 'CSP/ZEN'], ['DeepSeeEnabled', 'Analytics (DeepSee)'], ['iKnowEnabled', 'iKnow'],
+    ['InbndWebServicesEnabled', 'Inbound web services'], ['TraceEnabled', 'Trace']]],
+  ['WSGI', [['WSGIType', 'Type'], ['WSGIAppLocation', 'App location'], ['WSGIAppName', 'App name'], ['WSGICallable', 'Callable'],
+    ['WSGIDebug', 'Debug']]],
+];
+// MatchRoles: {MatchRole, TargetRoles} (or a list of them); an empty MatchRole means every user.
+function matchRoles(v) {
+  if (typeof v === 'string') return v || '—';
+  const list = (Array.isArray(v) ? v : [v]).filter((m) => m && (m.TargetRoles || []).length);
+  return list.map((m) => `${m.MatchRole ? `holders of ${m.MatchRole}` : 'every user'} → ${m.TargetRoles.join(', ')}`).join('; ') || '—';
+}
+function settings(a) {
+  const shown = new Set(SECTIONS.flatMap(([, rows]) => rows.map(([k]) => k)));
+  const other = Object.keys(a).filter((k) => !shown.has(k)).map((k) => [k]);
+  // The WSGI defaults (Callable "app") are noise on applications that are not WSGI.
+  const sections = [...SECTIONS.filter(([t]) => t !== 'WSGI' || a.WSGIAppName || a.WSGIAppLocation), ['Other', other]];
+  return sections.map(([title, rows]) => {
+    const present = rows.filter(([k]) => k in a);
+    return present.length ? [h('h3', title), h('dl.kv.sections', present.map(([k, label, fmt]) => [
+      h('dt', { title: k }, label || k), h('dd', fmt ? fmt(a[k]) : fmtValue(a[k]))]))] : null;
+  });
 }
 export default async function render(el, params) {
   const body = h('div');
@@ -67,7 +104,7 @@ async function details(name, reload) {
         confirmText: name, run: () => admin.del('/v2/web-app', { name }),
         verify: { read: () => readApp(name), expect: 'gone' }, done: 'Application deleted',
       }).then((ok) => { if (ok) { m.close(); reload(); } }) }, 'Delete') : null),
-    h('h3', 'Application settings'), kv(a));
+    settings(a));
   } catch (e) { clear(body, h('div.error-box', e.message)); }
 }
 // IRIS 2026.2: when PUT /v2/web-app creates a new application, ServeFiles/UseCookies are validated

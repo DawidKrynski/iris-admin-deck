@@ -183,6 +183,7 @@ tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: color-mix(in srgb, var(--panel-2) 70%, transparent); }
 td.actions { white-space: nowrap; text-align: right; }
 td.actions button + button { margin-left: 4px; }
+td.actions span + button { margin-left: 8px; }
 td.empty { text-align: center; color: var(--muted); padding: 28px; font-weight: 400; }
 .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12.5px; }
 .pager:empty { display: none; }
@@ -191,6 +192,7 @@ td.empty { text-align: center; color: var(--muted); padding: 28px; font-weight: 
 .kv { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: 7px 20px; margin: 0; font-size: 13.5px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; word-break: break-word; }
+.kv.sections { grid-template-columns: 200px 1fr; } /* same label column in every section of a details view */
 
 /* forms */
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px 16px; }
@@ -275,7 +277,7 @@ td.empty { text-align: center; color: var(--muted); padding: 28px; font-weight: 
   .grid.wide { grid-template-columns: 1fr; }
   .grid.stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .log-line { grid-template-columns: 1fr; gap: 2px; }
-  .kv { grid-template-columns: 1fr; gap: 2px 0; }
+  .kv, .kv.sections { grid-template-columns: 1fr; gap: 2px 0; }
   .kv dd { margin-bottom: 6px; }
   .console-list li { grid-template-columns: 50px 36px 1fr; }
 }

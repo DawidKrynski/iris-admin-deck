@@ -191,6 +191,19 @@ export const PREFIX = location.pathname.includes('/admindeck/') ? location.pathn
 export const admin = new Client(`${PREFIX}/api/admin`, 'adminDeck.adminTokens');
 
 /**
+ * Prometheus text of /api/monitor/metrics. Database free space and the mirror member type are there,
+ * not in /api/admin/v2. The endpoint needs no token; it may be switched off or not proxied (then it throws).
+ */
+export async function monitorMetrics() {
+  const url = `${PREFIX}/api/monitor/metrics`;
+  const started = performance.now();
+  const res = await fetch(url, { headers: { Accept: 'text/plain' } });
+  emit({ method: 'GET', url, status: res.status, ms: Math.round(performance.now() - started) });
+  if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
+  return res.text();
+}
+
+/**
  * Finds one row of a SysAdmin list endpoint by a field value — used to read back objects whose
  * GET-by-name endpoint does not exist (locks, sessions, wallet secrets) or whose id is unknown.
  * Throws a 404 ApiError when absent, so it works as a `read` for verified changes (verify.js).

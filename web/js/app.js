@@ -2,6 +2,7 @@
 import { admin, ext, login, logout, onCall, curl } from './api.js';
 import { h, clear, toastError, copy, errorBox, loading, icon, closeModals } from './ui.js';
 import { installPalette, openPalette, resetPalette, closePalette } from './palette.js';
+import { versionLabel as serverLabel } from './iris.js';
 
 // `priv` = SysAdmin API privilege(s) (from /api/admin/info) needed for the screen; any of them suffices.
 export const NAV = [
@@ -179,12 +180,6 @@ function toggleAccount() {
   // Roles come from the extension (the SysAdmin API reports privileges, not role names).
   ext.get('/whoami').then((w) => { roles.textContent = w.roles ? w.roles.split(',').join(' · ') : 'none'; },
     () => { roles.textContent = 'not available'; });
-}
-
-function serverLabel(v) {
-  // "IRIS for UNIX (Ubuntu ...) 2026.2 (Build 221U) Fri Jun 26 2026" -> "IRIS 2026.2 (Build 221U)"
-  const m = /^(\S+).*?\)\s+([\d.]+)\s+\(Build ([^)]+)\)/.exec(v || '');
-  return m ? `${m[1]} ${m[2]} · build ${m[3]}` : (v || 'IRIS');
 }
 
 // What the command palette offers: the screens this user may open and a few shell actions.
