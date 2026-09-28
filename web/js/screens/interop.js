@@ -55,12 +55,12 @@ function namespaceCard(n, canRun, reload) {
   const open = () => { location.hash = `#/interop/${enc(n.namespace)}`; };
   if (n.error) return h('div.card', h('h2', n.namespace, badge('Unreadable', 'err')), h('p.muted', n.error));
   return h('div.card',
-    h('h2', h('span', n.namespace), stateBadge(n.state)),
+    h('h2', h('span', n.namespace), n.production || startCandidate(n) ? stateBadge(n.state) : badge('No production', 'muted')),
     h('dl.kv',
       h('dt', 'Production'), h('dd', productionLabel(n)),
       h('dt', 'Errors, last hour'), h('dd', n.errorsLastHour ? badge(String(n.errorsLastHour), 'err') : '0'),
       n.needsUpdate ? [h('dt', 'Configuration'), h('dd', badge('Changes not applied', 'warn'), ' ', h('span.small.muted', n.updateReason || ''))] : null),
-    toolbar(button('Open', open, 'small'), canRun ? productionActions(n.namespace, n, reload) : null));
+    h('div', { style: { marginTop: '12px' } }, toolbar(button('Open', open, 'small'), canRun ? productionActions(n.namespace, n, reload) : null)));
 }
 
 const productionLabel = (s) => s.production || (startCandidate(s) ? `${startCandidate(s)} (not running)` : 'No production in this namespace');

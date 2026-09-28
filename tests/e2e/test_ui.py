@@ -183,7 +183,7 @@ def run_ui_checks(page):
     text = page.locator("main").inner_text()
     assert cards.count() > 0, text[:300]
     assert "No namespace has Interoperability enabled" in text or any(
-        s in text for s in ["Running", "Stopped", "Suspended", "Troubled"]), text[:300]
+        s in text for s in ["Running", "Stopped", "Suspended", "Troubled", "No production"]), text[:300]
     if page.locator("main .card:has(h2:has-text('USER')) button:has-text('Open')").count():
         page.click("main .card:has(h2:has-text('USER')) button:has-text('Open')")
         page.wait_for_url("**#/interop/USER")
