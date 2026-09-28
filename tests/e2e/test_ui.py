@@ -16,7 +16,7 @@ BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:52785").rstrip("
 UI = f"{BASE}/admindeck/index.html"
 APP = f"/zzuitest-{os.getpid()}"
 SOURCES = ["messages.log", "alerts.log", "System Monitor", "Journal log", "Application errors", "Audit", "Task Manager"]
-SCREENS = ["dashboard", "webapps", "explorer", "users", "roles", "secrets", "tasks", "processes", "system", "status", "logs", "audit"]
+SCREENS = ["dashboard", "webapps", "explorer", "users", "roles", "secrets", "tasks", "processes", "system", "languages", "status", "logs", "audit"]
 
 
 def api(method, path, body=None):

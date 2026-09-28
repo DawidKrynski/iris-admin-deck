@@ -22,6 +22,7 @@ export const NAV = [
     { path: 'tasks', label: 'Tasks', priv: ['Operate', 'Task'], module: './screens/tasks.js' },
     { path: 'processes', label: 'Processes & locks', priv: ['Operate'], module: './screens/processes.js' },
     { path: 'system', label: 'Databases & system', priv: ['Manage', 'Operate'], module: './screens/system.js' },
+    { path: 'languages', label: 'Language servers', priv: ['ExternalLanguageServerEdit'], module: './screens/languages.js' },
   ] },
   { group: 'Observe', items: [
     { path: 'status', label: 'Status', priv: ['Operate'], module: './screens/status.js' },
