@@ -22,3 +22,8 @@ RUN --mount=type=bind,src=.,dst=. \
     # Everything the image's first-start hook would set up (namespace, CallIn) is done here;
     # mark it initialised so the hook does not run on first container start.
     date > $ISC_PACKAGE_INSTALLDIR/iris.init
+
+COPY --chmod=0755 scripts/on-start.script /opt/admindeck/on-start.script
+
+# After every start: the metrics sampler, and the demo incident (see scripts/on-start.script)
+CMD ["--check-caps", "false", "--after", "iris session IRIS -U %SYS < /opt/admindeck/on-start.script"]

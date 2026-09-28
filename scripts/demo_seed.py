@@ -8,9 +8,6 @@ while it is.
 Idempotent: existing objects are left alone.
 
 Usage: python3 scripts/demo_seed.py [base_url]    (env IRIS_USER / IRIS_PASSWORD, default SuperUser/SYS)
-       python3 scripts/demo_seed.py --incident [base_url]
-           dismounts REPORTS again; docker-compose.yml runs it after every start of the container, because
-           IRIS would mount the database on the first reference after a restart.
 """
 import base64
 import json
@@ -22,8 +19,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
-BASE = (ARGS[0] if ARGS else "http://localhost:52773").rstrip("/") + "/api/admin/v2"
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:52773").rstrip("/") + "/api/admin/v2"
 REPORTS_DIR = "/usr/irissys/mgr/reports/"
 AUTH = base64.b64encode(f"{os.environ.get('IRIS_USER', 'SuperUser')}:{os.environ.get('IRIS_PASSWORD', 'SYS')}".encode()).decode()
 CERT_DIR = os.environ.get("DEMO_CERT_DIR", "/usr/irissys/mgr/demo-certs")
@@ -89,7 +85,7 @@ def main():
 
 def seed_incident():
     """Database REPORTS and a "Sales export" task that reads it every 5 minutes. The incident itself, REPORTS
-    dismounted, is made by dismount_reports() when the container starts: the dashboard then lists the
+    dismounted, is made by scripts/on-start.script when the container starts: the dashboard then lists the
     database, the timeline the failed export runs, and Mount / Run again fix it."""
     directory = REPORTS_DIR
     if exists("/database", {"name": "REPORTS"}):
@@ -111,23 +107,6 @@ def seed_incident():
         "RunAfterGUID": "", "MirrorStatus": "Any", "IsBatch": False, "SuspendTerminated": False}))
 
 
-def dismount_reports():
-    if not exists("/database", {"name": "REPORTS"}):
-        return  # built without the demo data
-    # Mount first: after a restart the database is not mounted, and only an explicit dismount keeps IRIS
-    # from mounting it again on the next reference.
-    call("POST", "/database-dir/mount", {"dir": REPORTS_DIR}, {})
-    step("dismount REPORTS", *call("POST", "/database-dir/dismount", {"dir": REPORTS_DIR}, {}))
-    # Index messages.log again, so Similar incidents already knows this dismount and the earlier ones.
-    ext = BASE.replace("/api/admin/v2", "/admindeck/api")
-    req = urllib.request.Request(f"{ext}/logs/messages/index", data=b"{}", method="POST", headers={
-        "Authorization": f"Basic {AUTH}", "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req) as res:
-            print(f"  ok  messages.log indexed: {json.loads(res.read())['result']['indexed']} entries")
-    except (urllib.error.URLError, KeyError, ValueError) as e:
-        print(f"  ERR messages.log index: {e}")
-
 
 if __name__ == "__main__":
-    dismount_reports() if "--incident" in sys.argv else main()
+    main()

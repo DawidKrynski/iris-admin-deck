@@ -41,6 +41,17 @@ On the public demo steps 4 and 5 are refused (it is read-only); locally they wor
 
 ## Run it
 
+### Without cloning
+
+```bash
+docker run -d -p 127.0.0.1:52785:52773 ghcr.io/dawidkrynski/iris-admin-deck
+```
+
+An image is published for each release tag, for amd64 and arm64. The command uses `latest`;
+use a release tag instead to keep a specific version, for example `:v1.0.1`.
+Open <http://localhost:52785/admindeck/index.html> and sign in with `SuperUser` / `SYS`.
+That login is for the local demo only; change the passwords for anything else.
+
 ### Docker
 
 Requires Docker with Compose.
@@ -64,7 +75,7 @@ two X.509 credentials (one expires in 12 days, so the expiry warning has somethi
 collection with dummy secrets, a rotated `messages.old_*` log and a limited user `demo_operator` / `operator`
 (role `%Operator`) to see how the navigation hides screens you have no privilege for.
 It also sets up the incident described above: database REPORTS and a Sales export task that reads it.
-`docker-compose.yml` dismounts REPORTS after every start of the container, so the export starts failing
+The container's startup hook dismounts REPORTS after every start, so the export starts failing
 within 5 minutes. Build with `--build-arg DEMO=0` to skip the seed.
 
 If the page doesn't open:
@@ -245,7 +256,7 @@ daily at 03:15. Other or rotated files can be indexed from Similar incidents wit
   name.
 - Free space per database comes from `/api/monitor/metrics`. Behind a proxy that only forwards `/api/admin`
   and `/admindeck`, that column stays empty.
-- The Docker image is a local development instance with the well-known `SuperUser`/`SYS` login bound to
+- The Docker Compose setup is a local development instance with the well-known `SuperUser`/`SYS` login bound to
   localhost. The public demo is a separate, read-only deployment.
 
 ## How it works

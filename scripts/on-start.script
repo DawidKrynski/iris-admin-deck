@@ -1,0 +1,10 @@
+    // Run after every start of the container (Dockerfile CMD / docker-compose.yml): iris session IRIS -U %SYS < this file.
+    // Terminal input: one statement per line, a block has to stay on its line.
+    // 1. The metrics sampler, so the charts fill before anyone opens a page (USER: the image's package namespace).
+    // 2. Demo data only (DEMO=1): dismount REPORTS again. After a restart IRIS would mount it on the first
+    //    reference, so the incident in the README's "A morning on call" is made anew: mount, then dismount.
+    //    Then index messages.log, so Similar incidents already knows this dismount and the earlier ones.
+    set ns = "USER"
+    set $namespace = ns  do ##class(AdminDeck.Metrics).Ensure()  set $namespace = "%SYS"
+    if ##class(Config.Databases).Exists("REPORTS", .db) { do ##class(SYS.Database).MountDatabase(db.Directory)  set sc = ##class(SYS.Database).DismountDatabase(db.Directory)  write $select(sc: "dismounted ", 1: "dismount failed "), db.Directory, !  set $namespace = ns  do ##class(AdminDeck.VectorSearch).Reindex("messages", .count)  write "messages.log indexed: ", $get(count), ! }
+    halt

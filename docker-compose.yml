@@ -4,10 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    # After every start: start the metrics sampler, so the charts fill before anyone opens a page, and dismount
-    # the demo database REPORTS again (see scripts/demo_seed.py) for the README's "A morning on call".
-    # The second part does nothing on an image built with DEMO=0.
-    command: --check-caps false --after "iris session IRIS -U USER '##class(AdminDeck.Metrics).Ensure()'; python3 /home/irisowner/dev/scripts/demo_seed.py --incident"
+    # After every start: the metrics sampler, and the demo incident (see scripts/on-start.script). Same as the image's CMD.
+    command: --check-caps false --after "iris session IRIS -U %SYS < /opt/admindeck/on-start.script"
     ports:
       - "127.0.0.1:${ADMINDECK_PORT:-52785}:52773"
     volumes:
