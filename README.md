@@ -239,6 +239,8 @@ daily at 03:15. Other or rotated files can be indexed from Similar incidents wit
 - Similar incidents matches wording, not meaning.
 - Very large logs: only the last 8 MB of a file is parsed.
 - OS metrics are Linux-only (`/proc`, `statvfs`).
+- IRIS has no Task Manager schedule for "at startup", so after a restart the metrics sampler starts when the
+  first page reads it (the Docker setup starts it right away). Until then the charts have no new points.
 - Some fields are still shown as IRIS returns them, e.g. a process's `JobType` number, which the API doesn't
   name.
 - Free space per database comes from `/api/monitor/metrics`. Behind a proxy that only forwards `/api/admin`
@@ -284,14 +286,15 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 | | |
 | --- | --- |
-| ![Timeline](docs/img/timeline.png) Timeline with per-source status | ![Command palette](docs/img/palette.png) Ctrl+K palette |
-| ![Edit read back](docs/img/verified-change.png) An edit read back after saving | ![Status](docs/img/status.png) Status: the last hour per component |
+| ![Timeline](docs/img/timeline.png) Timeline filtered by `reports`: the failed export, the dismount and who did it | ![Command palette](docs/img/palette.png) Ctrl+K palette |
+| ![Edit read back](docs/img/verified-change.png) An edit read back after saving | ![Status](docs/img/status.png) Status: checks with evidence and a fix, then the last hour per component |
 | ![Similar incidents](docs/img/logs-similar.png) Similar incidents | ![Recurring problems](docs/img/logs-insights.png) Recurring problems in `messages.log` |
 | ![Tasks](docs/img/tasks.png) Tasks | ![API console](docs/img/api-console.png) API console |
 | ![Access matrix](docs/img/access-matrix.png) Access matrix | ![X.509](docs/img/secrets-x509.png) X.509 credentials with expiry |
 | ![Web apps](docs/img/webapps.png) Web apps & REST | ![API explorer](docs/img/explorer.png) API explorer |
 | ![Databases](docs/img/databases.png) Databases | ![Journal](docs/img/journal.png) Journal records |
-| ![Interoperability](docs/img/interop.png) Interoperability productions | |
+| ![Interoperability](docs/img/interop.png) Interoperability productions | ![Change log](docs/img/changes.png) Changes made here, with their read-back outcome |
+| ![REST APIs](docs/img/rest-apis.png) REST APIs on this instance | |
 
 ## Development
 
